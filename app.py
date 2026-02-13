@@ -70,6 +70,20 @@ except:
 st.sidebar.caption(f"Timezone: {timezone_str}")
 local_tz = pytz.timezone(timezone_str)
 
+# Track timezone changes to update time automatically
+if 'last_timezone' not in st.session_state:
+    st.session_state.last_timezone = timezone_str
+
+# If timezone changed (e.g. user updated location), update the default time to current local time
+if st.session_state.last_timezone != timezone_str:
+    st.session_state.last_timezone = timezone_str
+    now_local = datetime.now(local_tz)
+    st.session_state.selected_date = now_local.date()
+    st.session_state.selected_time = now_local.time()
+    # Update widget keys to reflect changes immediately
+    st.session_state['_new_date'] = now_local.date()
+    st.session_state['_new_time'] = now_local.time()
+
 # 3. Date & Time
 st.sidebar.subheader("🕒 Observation Start")
 now = datetime.now(local_tz)
@@ -85,8 +99,14 @@ def update_date():
 def update_time():
     st.session_state.selected_time = st.session_state._new_time
 
-selected_date = st.sidebar.date_input("Date", value=st.session_state.selected_date, key='_new_date', on_change=update_date)
-selected_time = st.sidebar.time_input("Time", value=st.session_state.selected_time, key='_new_time', on_change=update_time)
+# Ensure widget keys are initialized in session state to avoid warnings when value is omitted
+if '_new_date' not in st.session_state:
+    st.session_state['_new_date'] = st.session_state.selected_date
+if '_new_time' not in st.session_state:
+    st.session_state['_new_time'] = st.session_state.selected_time
+
+selected_date = st.sidebar.date_input("Date", key='_new_date', on_change=update_date)
+selected_time = st.sidebar.time_input("Time", key='_new_time', on_change=update_time)
 
 # Combine to timezone-aware datetime
 start_time = datetime.combine(st.session_state.selected_date, st.session_state.selected_time)
@@ -104,7 +124,7 @@ st.header("1. Choose Target")
 
 target_mode = st.radio(
     "Select Object Type:",
-    ["Star/Galaxy/Nebula (SIMBAD)", "Comet/Asteroid (JPL Horizons)", "Cosmic Cataclysm", "Manual RA/Dec"],
+    ["Star/Galaxy/Nebula (SIMBAD)", "Comet (JPL Horizons)", "Asteroid (JPL Horizons)", "Cosmic Cataclysm", "Manual RA/Dec"],
     horizontal=True
 )
 
@@ -124,14 +144,73 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
         except Exception as e:
             st.error(f"Could not resolve object: {e}")
 
-elif target_mode == "Comet/Asteroid (JPL Horizons)":
-    obj_name = st.text_input("Enter Object Name (e.g., 1P/Halley, Ceres)", value="C/2023 A3")
+elif target_mode == "Comet (JPL Horizons)":
+    # Pre-defined list of popular/bright comets
+    comet_targets = [
+        "C/2023 A3 (Tsuchinshan-ATLAS)",
+        "C/2024 S1 (ATLAS)",
+        "C/2024 G3 (ATLAS)",
+        "12P/Pons-Brooks",
+        "13P/Olbers",
+        "1P/Halley",
+        "2P/Encke",
+        "9P/Tempel 1",
+        "19P/Borrelly",
+        "29P/Schwassmann-Wachmann",
+        "67P/Churyumov-Gerasimenko",
+        "81P/Wild 2",
+        "103P/Hartley",
+        "C/2020 F3 (NEOWISE)",
+        "Custom Comet..."
+    ]
+    
+    selected_target = st.selectbox("Select a Comet", comet_targets)
+    
+    if selected_target == "Custom Comet...":
+        obj_name = st.text_input("Enter Comet Name (e.g., C/2020 F3)", value="")
+        st.markdown("ℹ️ *Not sure of the name? Search the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html).*")
+    else:
+        obj_name = selected_target.split('(')[0].strip()
+
+    if obj_name:
+        try:
+            with st.spinner(f"Querying JPL Horizons for {obj_name}..."):
+                utc_start = start_time.astimezone(pytz.utc)
+                name, sky_coord = resolve_horizons(obj_name, obs_time_str=utc_start.strftime('%Y-%m-%d %H:%M:%S'))
+            st.success(f"✅ Resolved: **{name}**")
+            resolved = True
+        except Exception as e:
+            st.error(f"Could not resolve object: {e}")
+
+elif target_mode == "Asteroid (JPL Horizons)":
+    # Pre-defined list of popular asteroids
+    asteroid_targets = [
+        "1 Ceres",
+        "2 Pallas",
+        "3 Juno",
+        "4 Vesta",
+        "10 Hygiea",
+        "16 Psyche",
+        "433 Eros",
+        "704 Interamnia",
+        "Custom Asteroid..."
+    ]
+    
+    selected_target = st.selectbox("Select an Asteroid", asteroid_targets)
+    
+    if selected_target == "Custom Asteroid...":
+        obj_name = st.text_input("Enter Asteroid Name (e.g., Eros, Psyche)", value="")
+        st.markdown("ℹ️ *Not sure of the name? Search the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html).*")
+    else:
+        # Extract just the ID (number) from strings like "4 Vesta"
+        obj_name = selected_target.split(' ')[0]
+
     if obj_name:
         try:
             with st.spinner(f"Querying JPL Horizons for {obj_name}..."):
                 # Pass UTC time for ephemeris lookup
                 utc_start = start_time.astimezone(pytz.utc)
-                name, sky_coord = resolve_horizons(obj_name, obs_time_str=utc_start.isoformat())
+                name, sky_coord = resolve_horizons(obj_name, obs_time_str=utc_start.strftime('%Y-%m-%d %H:%M:%S'))
             st.success(f"✅ Resolved: **{name}**")
             resolved = True
         except Exception as e:

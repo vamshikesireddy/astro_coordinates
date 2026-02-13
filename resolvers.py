@@ -31,8 +31,13 @@ def resolve_horizons(obj_name, obs_time_str="2026-02-13 00:30:00", location_code
     """Resolves a solar system body using JPL Horizons."""
     try:
         obs_time = Time(obs_time_str)
-        obj = Horizons(id=obj_name, location=location_code, epochs=obs_time.jd, id_type='smallbody')
-        result = obj.ephemerides()
+        try:
+            obj = Horizons(id=obj_name, location=location_code, epochs=obs_time.jd, id_type='smallbody')
+            result = obj.ephemerides()
+        except Exception:
+            # Fallback: try without id_type (allows search strings like "4 Vesta")
+            obj = Horizons(id=obj_name, location=location_code, epochs=obs_time.jd)
+            result = obj.ephemerides()
 
         ra = result['RA'][0] * u.deg
         dec = result['DEC'][0] * u.deg
