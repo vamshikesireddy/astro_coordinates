@@ -81,7 +81,7 @@ def main():
     
     # Output
     df = pd.DataFrame(results)
-    cols = ["Local Time", "UTC Time", "LST", "Azimuth (°)", "Altitude (°)", "Direction"]
+    cols = ["Local Time", "Azimuth (°)", "Altitude (°)", "Direction"]
     print(f"\nTarget: {name}")
     print(df[cols])
 

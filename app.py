@@ -308,11 +308,13 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     # Metrics
     max_alt = df["Altitude (°)"].max()
     best_time = df.loc[df["Altitude (°)"].idxmax()]["Local Time"]
+    constellation = df["Constellation"].iloc[0]
     
-    m1, m2, m3 = st.columns(3)
+    m1, m2, m3, m4 = st.columns(4)
     m1.metric("Max Altitude", f"{max_alt}°")
     m2.metric("Best Time", best_time.split(" ")[1])
     m3.metric("Direction at Max", df.loc[df["Altitude (°)"].idxmax()]["Direction"])
+    m4.metric("Constellation", constellation)
 
     # Chart
     st.subheader("Altitude vs Time")
