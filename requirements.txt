@@ -1,0 +1,13 @@
+streamlit
+pandas
+geocoder
+pytz
+requests
+timezonefinder
+astropy
+astroquery
+lxml[html_clean]
+beautifulsoup4
+selenium
+webdriver-manager
+requests-html

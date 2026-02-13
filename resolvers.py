@@ -1,4 +1,4 @@
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, FK5
 from astropy import units as u
 from astropy.time import Time
 from astroquery.simbad import Simbad
@@ -7,7 +7,12 @@ from astroquery.jplhorizons import Horizons
 def resolve_simbad(obj_name):
     """Resolves an object name using SIMBAD."""
     try:
-        sky_coord = SkyCoord.from_name(obj_name)
+        # Get ICRS coordinates from SIMBAD
+        icrs_coord = SkyCoord.from_name(obj_name)
+        
+        # Transform to FK5 with current epoch
+        t = Time.now()
+        fk5_coord = icrs_coord.transform_to(FK5(equinox=t))
         
         custom_simbad = Simbad()
         custom_simbad.TIMEOUT = 10
@@ -18,7 +23,7 @@ def resolve_simbad(obj_name):
             main_id = result_table['MAIN_ID'][0]
             resolved_name = main_id.decode('utf-8') if isinstance(main_id, bytes) else str(main_id)
         
-        return resolved_name, sky_coord
+        return resolved_name, fk5_coord
     except Exception as e:
         raise RuntimeError(f"SIMBAD lookup failed for {obj_name}: {e}")
 

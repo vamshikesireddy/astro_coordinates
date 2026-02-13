@@ -14,7 +14,7 @@ This tool helps astrophotographers plan their sessions by calculating the altitu
 Install the required Python packages:
 
 ```bash
-pip install astropy astroquery geocoder timezonefinder pandas pytz
+pip install -r requirements.txt
 ```
 
 ## Usage
@@ -30,8 +30,9 @@ pip install astropy astroquery geocoder timezonefinder pandas pytz
 
 ## Project Structure
 
-*   `main.py`: The entry point of the application.
+*   `main.py`: The entry point of the application. Run this file.
 *   `coordinates.py`: Configuration file for manual target input.
-*   `core.py`: Trajectory calculations.
-*   `resolvers.py`: SIMBAD and JPL Horizons interfaces.
-*   `utils.py`: Helper functions.
+*   `astro_coordinates/`: Python package containing the core logic.
+    *   `core.py`: Trajectory calculations.
+    *   `resolvers.py`: SIMBAD and JPL Horizons interfaces.
+    *   `utils.py`: Helper functions.
