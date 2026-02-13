@@ -2,17 +2,21 @@ import streamlit as st
 import pandas as pd
 import geocoder
 import pytz
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 from timezonefinder import TimezoneFinder
 from astropy.coordinates import EarthLocation, SkyCoord, FK5
 from astropy import units as u
 from astropy.time import Time
 
+try:
+    from streamlit_js_eval import get_geolocation
+except ImportError:
+    get_geolocation = None
+
 # Import from local modules
 from resolvers import resolve_simbad, resolve_horizons
 from core import compute_trajectory
+from scrape import scrape_unistellar_table
 
 st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide")
 
@@ -25,46 +29,44 @@ st.markdown("Plan your astrophotography sessions with visibility predictions.")
 st.sidebar.header("📍 Location & Time")
 
 # 1. Location
-@st.cache_data
-def get_default_location():
-    try:
-        g = geocoder.ip('me')
-        if g.latlng:
-            return g.latlng
-    except:
-        pass
-    return [40.7128, -74.0060] # Default to NYC if IP fails
+# Initialize session state with empty location
+if 'lat' not in st.session_state:
+    st.session_state.lat = None
+if 'lon' not in st.session_state:
+    st.session_state.lon = None
 
-default_lat, default_lon = get_default_location()
-
-use_manual_loc = st.sidebar.checkbox("📍 Enter Address/Coordinates manually", value=False)
-
-if use_manual_loc:
-    address = st.sidebar.text_input("Search Address (e.g., 'Central Park, NY')")
-    if address:
+def search_address():
+    if st.session_state.addr_search:
         try:
-            g = geocoder.osm(address)
+            g = geocoder.osm(st.session_state.addr_search)
             if g.ok:
-                default_lat, default_lon = g.latlng
-                st.sidebar.success(f"Found: {g.address}")
-            else:
-                st.sidebar.error("Address not found.")
+                st.session_state.lat = g.latlng[0]
+                st.session_state.lon = g.latlng[1]
         except:
-            st.sidebar.error("Geocoding service unavailable.")
-    
-    lat = st.sidebar.number_input("Latitude", value=float(default_lat), format="%.4f")
-    lon = st.sidebar.number_input("Longitude", value=float(default_lon), format="%.4f")
+            pass
+
+if get_geolocation:
+    if st.sidebar.checkbox("📍 Use Browser GPS"):
+        loc = get_geolocation()
+        if loc:
+            st.session_state.lat = loc['coords']['latitude']
+            st.session_state.lon = loc['coords']['longitude']
 else:
-    lat = default_lat
-    lon = default_lon
-    st.sidebar.info(f"Using detected location: {lat:.4f}, {lon:.4f}")
+    st.sidebar.info("Install `streamlit-js-eval` for GPS support.")
+
+st.sidebar.text_input("Search Address", key="addr_search", on_change=search_address, help="Enter city or address to update coordinates")
+
+lat = st.sidebar.number_input("Latitude", key="lat", format="%.4f")
+lon = st.sidebar.number_input("Longitude", key="lon", format="%.4f")
 
 # 2. Timezone
 tf = TimezoneFinder()
+timezone_str = "UTC"
 try:
-    timezone_str = tf.timezone_at(lat=lat, lng=lon) or "UTC"
+    if lat is not None and lon is not None:
+        timezone_str = tf.timezone_at(lat=lat, lng=lon) or "UTC"
 except:
-    timezone_str = "UTC"
+    pass
 st.sidebar.caption(f"Timezone: {timezone_str}")
 local_tz = pytz.timezone(timezone_str)
 
@@ -102,7 +104,7 @@ st.header("1. Choose Target")
 
 target_mode = st.radio(
     "Select Object Type:",
-    ["Star/Galaxy/Nebula (SIMBAD)", "Comet/Asteroid (JPL Horizons)", "Manual RA/Dec"],
+    ["Star/Galaxy/Nebula (SIMBAD)", "Comet/Asteroid (JPL Horizons)", "Cosmic Cataclysm", "Manual RA/Dec"],
     horizontal=True
 )
 
@@ -110,44 +112,6 @@ name = "Unknown"
 sky_coord = None
 resolved = False
 
-
-@st.cache_data(ttl=3600)
-def get_unistellar_data():
-    alert_page_url = "https://alerts.unistellaroptics.com/transient/events.html"
-    try:
-        # Fetch the main page
-        response = requests.get(alert_page_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
-        response.raise_for_status()
-        
-        # Parse the HTML to find the iframe URL
-        soup = BeautifulSoup(response.text, 'lxml')
-        
-        # Find the h3 tag with the specific text
-        h3_tag = soup.find('h3', string='Cosmic Alert Targets')
-        
-        if not h3_tag:
-            st.error("Could not find the 'Cosmic Alert Targets' section.")
-            return None
-            
-        # Find the next iframe after the h3 tag
-        iframe = h3_tag.find_next('iframe')
-        
-        if not iframe or not iframe.has_attr('src') or 'docs.google.com/spreadsheets' not in iframe['src']:
-            st.error("Could not find the embedded Google Sheet with event data after the 'Cosmic Alert Targets' section.")
-            return None
-            
-        # Modify the URL to get the CSV export link
-        sheet_url = iframe['src']
-        # Replace /pubhtml with /export?format=csv
-        csv_url = sheet_url.replace("/pubhtml", "/export?format=csv")
-
-        # Fetch the CSV data
-        df = pd.read_csv(csv_url)
-        return df
-
-    except Exception as e:
-        st.error(f"Error fetching or parsing Unistellar data: {e}")
-        return None
 
 if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
     obj_name = st.text_input("Enter Object Name (e.g., M31, Vega, Pleiades)", value="M42")
@@ -173,6 +137,61 @@ elif target_mode == "Comet/Asteroid (JPL Horizons)":
         except Exception as e:
             st.error(f"Could not resolve object: {e}")
 
+elif target_mode == "Cosmic Cataclysm":
+    st.info("Fetching latest alerts from Unistellar (via Selenium scrape)...")
+    
+    @st.cache_data(ttl=3600, show_spinner="Scraping data...")
+    def get_scraped_data():
+        return scrape_unistellar_table()
+
+    df_alerts = get_scraped_data()
+    
+    if df_alerts is not None and not df_alerts.empty:
+        # Try to identify columns dynamically
+        df_alerts.columns = df_alerts.columns.str.strip()
+        cols = df_alerts.columns.tolist()
+        
+        # Look for 'Name' (preferred) or 'Target'
+        target_col = next((c for c in cols if c.lower() in ['name', 'target', 'object']), None)
+        ra_col = next((c for c in cols if c.lower() in ['ra', 'r.a.']), None)
+        dec_col = next((c for c in cols if c.lower() in ['dec', 'declination']), None)
+        
+        if target_col:
+            targets = df_alerts[target_col].unique()
+            obj_name = st.selectbox("Select Target", targets)
+            
+            if obj_name:
+                row = df_alerts[df_alerts[target_col] == obj_name].iloc[0]
+                name = obj_name
+                
+                if ra_col and dec_col:
+                    ra_val = row[ra_col]
+                    dec_val = row[dec_col]
+                    st.caption(f"Coordinates: RA {ra_val}, Dec {dec_val}")
+                    
+                    try:
+                        # Handle potential string formatting issues
+                        sky_coord = SkyCoord(str(ra_val), str(dec_val), frame='icrs')
+                        resolved = True
+                        st.success(f"✅ Resolved: **{name}**")
+                    except Exception as e:
+                        st.error(f"Error parsing coordinates: {e}")
+            
+            # Display data with shortened links
+            st.subheader("Available Targets")
+            display_df = df_alerts.copy()
+            link_col = next((c for c in display_df.columns if 'link' in c.lower()), None)
+            if link_col:
+                display_df[link_col] = display_df[link_col].apply(
+                    lambda x: "unistellar://..." if isinstance(x, str) and x.startswith("unistellar://") else x
+                )
+            st.dataframe(display_df)
+        else:
+            st.error(f"Could not find 'Name' column. Found: {cols}")
+            st.dataframe(df_alerts)
+    else:
+        st.error("Failed to scrape data. Please check the scraper logs.")
+
 elif target_mode == "Manual RA/Dec":
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -196,6 +215,10 @@ elif target_mode == "Manual RA/Dec":
 st.header("2. Trajectory Results")
 
 if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved):
+    if lat is None or lon is None:
+        st.error("Please enter a valid location (Latitude & Longitude) in the sidebar.")
+        st.stop()
+
     location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
     
     with st.spinner("Calculating trajectory..."):
@@ -223,9 +246,13 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     st.subheader("Detailed Data")
     st.dataframe(df, width='stretch')
 
+    # Sanitize filename
+    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).strip()
+    date_str = start_time.strftime('%Y-%m-%d')
+
     st.download_button(
         label="Download CSV",
         data=df.to_csv(index=False).encode('utf-8'),
-        file_name=f"{name}_trajectory.csv",
+        file_name=f"{safe_name}_{date_str}_trajectory.csv",
         mime="text/csv",
     )
