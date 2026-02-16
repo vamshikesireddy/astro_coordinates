@@ -28,6 +28,27 @@ st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wid
 st.title("🔭 Astro Coordinates Planner")
 st.markdown("Plan your astrophotography sessions with visibility predictions.")
 
+with st.expander("ℹ️ How to Use"):
+    st.markdown("""
+    ### 1. Set Location & Time (Sidebar)
+    *   **Location:** Search for a city, use Browser GPS, or enter coordinates manually.
+    *   **Time:** Set your observation start date and time.
+    *   **Duration:** Choose how long you plan to image.
+
+    ### 2. Choose a Target
+    Select one of the five modes:
+    *   **🌌 Star/Galaxy/Nebula:** Enter a name (e.g., `M42`, `Vega`).
+    *   **☄️ Comet:** Select from popular comets or search JPL Horizons.
+    *   **🪨 Asteroid:** Select major asteroids or search by name.
+    *   **💥 Cosmic Cataclysm:** Scrape live alerts for transient events.
+    *   **✍️ Manual:** Enter RA/Dec directly.
+
+    ### 3. Calculate & Analyze
+    *   Click **🚀 Calculate Visibility**.
+    *   View the **Altitude Chart** to see if the object is high enough.
+    *   **Download CSV** for detailed minute-by-minute data.
+    """)
+
 # ---------------------------
 # SIDEBAR: Location & Time
 # ---------------------------
