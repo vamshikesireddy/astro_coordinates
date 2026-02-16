@@ -216,10 +216,10 @@ elif target_mode == "Comet (JPL Horizons)":
     ]
     
     selected_target = st.selectbox("Select a Comet", comet_targets)
+    st.markdown("ℹ️ *Target not listed? Find the exact designation in the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html) and use 'Custom Comet...'*")
     
     if selected_target == "Custom Comet...":
         obj_name = st.text_input("Enter Comet Name (e.g., C/2020 F3)", value="")
-        st.markdown("ℹ️ *Not sure of the name? Search the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html).*")
     else:
         obj_name = selected_target.split('(')[0].strip()
 
@@ -248,10 +248,10 @@ elif target_mode == "Asteroid (JPL Horizons)":
     ]
     
     selected_target = st.selectbox("Select an Asteroid", asteroid_targets)
+    st.markdown("ℹ️ *Target not listed? Find the exact designation in the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html) and use 'Custom Asteroid...'*")
     
     if selected_target == "Custom Asteroid...":
         obj_name = st.text_input("Enter Asteroid Name (e.g., Eros, Psyche)", value="")
-        st.markdown("ℹ️ *Not sure of the name? Search the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html).*")
     else:
         # Extract just the ID (number) from strings like "4 Vesta"
         obj_name = selected_target.split(' ')[0]
