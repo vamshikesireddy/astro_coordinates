@@ -5,8 +5,7 @@ geocoder
 pytz
 timezonefinder
 astropy
-streamlit
+streamlit>=1.40.0
 streamlit-js-eval
 streamlit-searchbox
 astroquery
-altair<5
