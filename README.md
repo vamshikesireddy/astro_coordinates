@@ -1,38 +1,59 @@
-# astro_coordinates
+# 🔭 Astro Coordinates Planner
 
-This tool helps astrophotographers plan their sessions by calculating the altitude and azimuth of celestial targets over time for a specific location.
+**Live App:** [https://astro-coordinates.streamlit.app/](https://astro-coordinates.streamlit.app/)
 
-## Features
+## Overview
+The **Astro Coordinates Planner** is a web application designed for astrophotographers and astronomers. It helps you determine **if** and **when** a specific celestial object will be visible from your location tonight.
 
-*   **Manual Input:** Define RA/Dec in `coordinates.py`.
-*   **SIMBAD Lookup:** Resolve stars, galaxies, and nebulae by name.
-*   **JPL Horizons:** Resolve comets and asteroids.
-*   **Trajectory Calculation:** Computes visibility (Altitude/Azimuth) for the next 4 hours.
+Instead of guessing, you can calculate the exact **Altitude** (height above horizon) and **Azimuth** (compass direction) of stars, comets, asteroids, or transient events over a specific time window.
+
+## Key Features
+*   **Precise Location & Time:** Automatically detects timezones based on your latitude/longitude.
+*   **Deep Sky Resolver (SIMBAD):** Instantly find coordinates for millions of stars, galaxies, and nebulae.
+*   **Solar System Objects (JPL Horizons):** Accurate ephemerides for comets and asteroids.
+*   **Cosmic Cataclysms:** Live scraping of transient events (novae, supernovae) from Unistellar alerts.
+*   **Visibility Charts:** Visual graphs showing how high an object climbs in the sky.
+*   **Data Export:** Download trajectory data as CSV for use in telescope mount software.
 
 ## Installation
 
-Install the required Python packages:
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-1.  **Run the main script:**
+1.  **Install Dependencies:**
     ```bash
-    python main.py
+    pip install -r requirements.txt
     ```
-2.  **Select a mode:**
-    *   `1`: Uses the target defined in `coordinates.py`.
-    *   `2`: Enter a name (e.g., "Andromeda") to look up via SIMBAD.
-    *   `3`: Enter a name (e.g., "Halley") to look up via JPL Horizons.
+
+2.  **System Requirements (for Scraper):**
+    Ensure Chrome/Chromium is installed if running locally.
+    *   *Linux/Docker:* `apt-get install chromium chromium-driver`
+
+## How to Use
+
+### 1. Run the App
+    ```bash
+    streamlit run app.py
+    ```
+
+### 2. Set Location & Time (Sidebar)
+*   **Location:** Search for a city, use Browser GPS, or enter coordinates manually.
+*   **Time:** Set your observation start date and time.
+*   **Duration:** Choose how long you plan to image.
+
+### 3. Choose a Target
+Select one of the five modes:
+*   **🌌 Star/Galaxy/Nebula:** Enter a name (e.g., `M42`, `Vega`).
+*   **☄️ Comet:** Select from popular comets or search JPL Horizons.
+*   **🪨 Asteroid:** Select major asteroids or search by name.
+*   **💥 Cosmic Cataclysm:** Scrape live alerts for transient events.
+*   **✍️ Manual:** Enter RA/Dec directly.
+
+### 4. Calculate & Analyze
+*   Click **🚀 Calculate Visibility**.
+*   View the **Altitude Chart** to see if the object is high enough.
+*   **Download CSV** for detailed minute-by-minute data.
 
 ## Project Structure
-
-*   `main.py`: The entry point of the application. Run this file.
-*   `coordinates.py`: Configuration file for manual target input.
-*   `astro_coordinates/`: Python package containing the core logic.
-    *   `core.py`: Trajectory calculations.
-    *   `resolvers.py`: SIMBAD and JPL Horizons interfaces.
-    *   `utils.py`: Helper functions.
+*   `app.py`: Main Streamlit web application.
+*   `scrape.py`: Selenium scraper for Unistellar alerts.
+*   `core.py`: Trajectory calculation logic.
+*   `resolvers.py`: Interfaces for SIMBAD and JPL Horizons.
+*   `Dockerfile`: Configuration for containerized deployment.
