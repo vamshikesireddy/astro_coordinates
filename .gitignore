@@ -1,1 +1,16 @@
-unistellar_targets.csv
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# Streamlit secrets (NEVER commit this)
+.streamlit/secrets.toml
+
+# Local data files (if you download them)
+*.csv
+
+# OS generated files
+.DS_Store
+Thumbs.db
