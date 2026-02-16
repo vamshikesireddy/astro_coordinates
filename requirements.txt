@@ -9,3 +9,4 @@ streamlit
 streamlit-js-eval
 streamlit-searchbox
 astroquery
+altair<5
