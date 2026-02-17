@@ -32,6 +32,16 @@ from scrape import scrape_unistellar_table
 
 st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide")
 
+# --- Hide Streamlit Branding & Toolbar ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: visible;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 st.title("🔭 Astro Coordinates Planner")
 st.markdown("Plan your astrophotography sessions with visibility predictions.")
 
