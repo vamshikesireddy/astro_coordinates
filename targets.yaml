@@ -1,0 +1,43 @@
+priorities:
+  SN2025rbs: LOW
+  EE Cep: MEDIUM
+
+cancelled:
+  - ZTF25accplbx
+  - ZTF25accnwxo
+  - ZTF25accnjsu
+  - ZTF25acbends
+  - ZTF25aaynffn
+  - ZTF18acpclin
+  - ZTF18acixhgd
+  - ZTF25abmsajp
+  - ZTF23aaklivg
+  - ZTF25abzovnd
+  - ZTF25acfwghi
+  - ZTF25acftvwg
+  - ZTF25acfayxv
+  - ZTF25acegldq
+  - ZTF25acipcwb
+  - ZTF18aaipdtn
+  - ZTF25acfwlqr
+  - ZTF18aahvnwj
+  - ZTF26aaadphh
+  - ZTF25abbmizf
+  - ZTF26aacfaks
+  - ZTF26aaghaom
+  - ZTF26aadwzbu
+  - ZTF18aaijvrj
+
+too_faint:
+  - ZTF25aaxnchn
+  - ZTF25abtgvqq
+  - GRB_1409824
+  - ZTF25acbends
+  - ZTF25abupdae
+  - ZTF25abhkwtc
+  - ZTF25acdzppt
+  - GRB_1413695
+  - ZTF25abkitsk
+  - ZTF25abbgziu
+  - GRB_1417793
+  - ZTF25abkkdhl

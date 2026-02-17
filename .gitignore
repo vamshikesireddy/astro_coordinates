@@ -10,8 +10,7 @@ env/
 
 # Local data files (if you download them)
 *.csv
-blocklist.txt
-pending_blocks.txt
+pending_requests.txt
 
 # OS generated files
 .DS_Store

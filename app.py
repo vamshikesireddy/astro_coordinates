@@ -1,4 +1,5 @@
 import streamlit as st
+import yaml
 import os
 import pandas as pd
 import geocoder
@@ -19,9 +20,14 @@ try:
 except ImportError:
     st_searchbox = None
 
+try:
+    from github import Github
+except ImportError:
+    Github = None
+
 # Import from local modules
 from resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides
-from core import compute_trajectory
+from core import compute_trajectory, calculate_planning_info
 from scrape import scrape_unistellar_table
 
 st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide")
@@ -269,65 +275,172 @@ elif target_mode == "Asteroid (JPL Horizons)":
             st.error(f"Could not resolve object: {e}")
 
 elif target_mode == "Cosmic Cataclysm":
-    st.info("Fetching latest alerts from Unistellar (via Selenium scrape)...")
+    status_msg = st.empty()
+    status_msg.info("Fetching latest alerts from Unistellar...")
     
-    # --- Global Blocklist & Admin Logic ---
-    BLOCKLIST_FILE = "blocklist.txt"
-    PENDING_FILE = "pending_blocks.txt"
+    # --- Global Configuration (YAML) ---
+    TARGETS_FILE = "targets.yaml"
+    PENDING_FILE = "pending_requests.txt"
 
-    def get_file_list(filepath):
-        if os.path.exists(filepath):
-            with open(filepath, "r") as f:
-                return [line.strip() for line in f if line.strip()]
-        return []
+    def load_targets_config():
+        if os.path.exists(TARGETS_FILE):
+            with open(TARGETS_FILE, "r") as f:
+                return yaml.safe_load(f) or {}
+        return {"priorities": {}, "cancelled": [], "too_faint": []}
+
+    def save_targets_config(config):
+        # 1. Save locally (for immediate use)
+        with open(TARGETS_FILE, "w") as f:
+            yaml.dump(config, f, default_flow_style=False)
+            
+        # 2. Sync to GitHub (for persistence)
+        token = st.secrets.get("GITHUB_TOKEN")
+        repo_name = st.secrets.get("GITHUB_REPO")
+        
+        if token and repo_name and Github:
+            try:
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                yaml_str = yaml.dump(config, default_flow_style=False)
+                
+                try:
+                    contents = repo.get_contents(TARGETS_FILE)
+                    repo.update_file(contents.path, "Update targets.yaml (Admin)", yaml_str, contents.sha)
+                    st.toast("✅ targets.yaml pushed to GitHub")
+                except Exception:
+                    repo.create_file(TARGETS_FILE, "Create targets.yaml (Admin)", yaml_str)
+                    st.toast("✅ targets.yaml created on GitHub")
+            except Exception as e:
+                st.error(f"GitHub Sync Error: {e}")
 
     # 1. Report UI (Public)
-    with st.expander("🚩 Report False/Invalid Event/Concluded Events"):
-        st.caption("Found a false or concluded event? Submit it for review. It will be hidden for everyone once approved.")
-        report_name = st.text_input("Event Name to Block")
-        if st.button("Submit Report"):
-            if report_name:
-                # Append to pending file
-                with open(PENDING_FILE, "a") as f:
-                    f.write(f"{report_name}\n")
-                st.success(f"Report for '{report_name}' submitted for review.")
-            else:
-                st.warning("Please enter a name.")
+    with st.expander("🚩 Report Issue / Suggest Priority"):
+        st.caption("Report invalid events or suggest priority changes.")
+        
+        tab_block, tab_pri = st.tabs(["🚫 Block Target", "⭐ Suggest Priority"])
+        
+        with tab_block:
+            c1, c2 = st.columns([2, 1])
+            b_name = c1.text_input("Event Name", key="rep_b_name")
+            b_reason = c2.selectbox("Reason", ["Cancelled", "Too Faint"], key="rep_b_reason")
+            if st.button("Submit Block Report", key="btn_block"):
+                if b_name:
+                    with open(PENDING_FILE, "a") as f:
+                        f.write(f"{b_name}|{b_reason}\n")
+                    st.success(f"Report for '{b_name}' submitted.")
+        
+        with tab_pri:
+            c1, c2 = st.columns([2, 1])
+            p_name = c1.text_input("Event Name", key="rep_p_name")
+            p_val = c2.selectbox("New Priority", ["LOW", "MEDIUM", "HIGH", "URGENT"], key="rep_p_val")
+            if st.button("Submit Priority", key="btn_pri"):
+                if p_name:
+                    with open(PENDING_FILE, "a") as f:
+                        f.write(f"{p_name}|Priority: {p_val}\n")
+                    st.success(f"Priority for '{p_name}' submitted.")
+
+    # Display Active Priority Overrides
+    current_config = load_targets_config()
+    if current_config.get("priorities"):
+        with st.expander("⭐Target Priorities"):
+            st.caption("These targets have manually assigned priorities:")
+            p_items = list(current_config["priorities"].items())
+            p_df = pd.DataFrame(p_items, columns=["Target", "Priority"])
+            st.dataframe(p_df, hide_index=True, use_container_width=True)
 
     # 2. Admin UI (Restricted)
     with st.sidebar:
         st.markdown("---")
         with st.expander("🔐 Admin Review"):
             admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_input")
-            
-            # Securely retrieve password from Streamlit secrets
-            # If not set, returns None, making login impossible (secure default)
             correct_pass = st.secrets.get("ADMIN_PASSWORD")
             
             if correct_pass and admin_pass == correct_pass:
+                # --- Pending Requests ---
                 st.markdown("### Pending Requests")
-                pending_reqs = get_file_list(PENDING_FILE)
-                if not pending_reqs:
+                if os.path.exists(PENDING_FILE):
+                    with open(PENDING_FILE, "r") as f:
+                        lines = [l.strip() for l in f if l.strip()]
+                else:
+                    lines = []
+
+                if not lines:
                     st.info("No pending requests.")
-                for req in pending_reqs:
-                    st.text(req)
+                
+                for i, line in enumerate(lines):
+                    parts = line.split('|')
+                    if len(parts) != 2: continue
+                    r_name, r_reason = parts
+                    
+                    st.text(f"{r_name} ({r_reason})")
                     c1, c2 = st.columns(2)
-                    if c1.button("✅ Accept", key=f"acc_{req}"):
-                        with open(BLOCKLIST_FILE, "a") as f: f.write(f"{req}\n")
-                        # Remove from pending (rewrite file excluding this req)
-                        remaining = [r for r in pending_reqs if r != req]
+                    
+                    if c1.button("✅ Accept", key=f"acc_{i}_{r_name}"):
+                        config = load_targets_config()
+                        
+                        if r_reason.startswith("Priority:"):
+                            # Handle Priority
+                            val = r_reason.split(":")[1].strip()
+                            if "priorities" not in config: config["priorities"] = {}
+                            config["priorities"][r_name] = val
+                        else:
+                            # Handle Block
+                            key = "cancelled" if r_reason == "Cancelled" else "too_faint"
+                            if key not in config: config[key] = []
+                            if r_name not in config[key]:
+                                config[key].append(r_name)
+                        
+                        save_targets_config(config)
+                        
+                        # Remove from pending
+                        remaining = [l for l in lines if l != line]
                         with open(PENDING_FILE, "w") as f: f.write("\n".join(remaining) + "\n")
                         st.rerun()
-                    if c2.button("❌ Reject", key=f"rej_{req}"):
-                        remaining = [r for r in pending_reqs if r != req]
+                        
+                    if c2.button("❌ Reject", key=f"rej_{i}_{r_name}"):
+                        remaining = [l for l in lines if l != line]
                         with open(PENDING_FILE, "w") as f: f.write("\n".join(remaining) + "\n")
                         st.rerun()
+                
+                # --- Priority Management ---
+                st.markdown("---")
+                st.markdown("### Manage Priorities")
+                
+                # List existing priorities with delete option
+                config = load_targets_config()
+                if config.get("priorities"):
+                    st.caption("Current Priorities:")
+                    for t_name, t_pri in list(config["priorities"].items()):
+                        pc1, pc2 = st.columns([3, 1])
+                        pc1.text(f"{t_name}: {t_pri}")
+                        if pc2.button("🗑️", key=f"del_pri_{t_name}"):
+                            del config["priorities"][t_name]
+                            save_targets_config(config)
+                            st.rerun()
+                
+                st.caption("Add New Manually:")
+                p_name = st.text_input("Target Name for Priority")
+                p_val = st.selectbox("New Priority", ["LOW", "MEDIUM", "HIGH", "URGENT"])
+                if st.button("Update Priority"):
+                    if p_name:
+                        config = load_targets_config()
+                        if "priorities" not in config: config["priorities"] = {}
+                        config["priorities"][p_name] = p_val
+                        save_targets_config(config)
+                        st.success(f"Set {p_name} to {p_val}")
 
     @st.cache_data(ttl=3600, show_spinner="Scraping data...")
     def get_scraped_data():
         return scrape_unistellar_table()
 
-    df_alerts = get_scraped_data()
+    # Check location first
+    if lat is None or lon is None:
+        status_msg.empty()
+        st.warning("⚠️ Please set your **Latitude** and **Longitude** in the sidebar first. We need this to calculate Rise/Set times for the targets.")
+        df_alerts = None
+    else:
+        df_alerts = get_scraped_data()
+        status_msg.empty()
     
     if df_alerts is not None and not df_alerts.empty:
         # Try to identify columns dynamically
@@ -340,13 +453,78 @@ elif target_mode == "Cosmic Cataclysm":
         dec_col = next((c for c in cols if c.lower() in ['dec', 'declination']), None)
         
         if target_col:
-            # --- Apply Global Blocklist Filter ---
-            blocked_targets = get_file_list(BLOCKLIST_FILE)
+            # --- Apply Configuration (Blocklist & Priorities) ---
+            config = load_targets_config()
+            
+            # 1. Blocking
+            blocked_targets = config.get("cancelled", []) + config.get("too_faint", [])
             if blocked_targets:
                 # Filter out rows where target name contains any blocked string (case-insensitive)
                 df_alerts = df_alerts[~df_alerts[target_col].astype(str).apply(lambda x: any(b.lower() in x.lower() for b in blocked_targets))]
             
-            targets = df_alerts[target_col].unique()
+            # 2. Priorities
+            # Find Priority column (e.g., 'Pri', 'Priority')
+            pri_col = next((c for c in cols if c.lower().startswith('pri')), None)
+            if pri_col and "priorities" in config:
+                for p_name, p_val in config["priorities"].items():
+                    # Update rows where target name contains the priority key
+                    mask = df_alerts[target_col].astype(str).apply(lambda x: p_name.lower() in x.lower())
+                    if mask.any():
+                        df_alerts.loc[mask, pri_col] = p_val
+
+            # --- Calculate Planning Info for Table ---
+            st.caption(f"Calculating visibility for {len(df_alerts)} targets based on your location...")
+            
+            planning_data = []
+            location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
+            
+            # Create a progress bar if there are many targets
+            progress_bar = st.progress(0)
+            total_rows = len(df_alerts)
+
+            for idx, row in df_alerts.iterrows():
+                # Update progress
+                if idx % 5 == 0: progress_bar.progress(min(idx / total_rows, 1.0))
+                
+                try:
+                    # Parse coordinates
+                    ra_val = row[ra_col]
+                    dec_val = row[dec_col]
+                    # Handle potential string formatting issues
+                    sc = SkyCoord(str(ra_val), str(dec_val), frame='icrs')
+                    
+                    # Calculate details
+                    details = calculate_planning_info(sc, location, start_time)
+                    
+                    # Merge row data with details
+                    row_dict = row.to_dict()
+                    row_dict.update(details)
+                    planning_data.append(row_dict)
+                except Exception:
+                    # If coord parsing fails, just keep original row
+                    planning_data.append(row.to_dict())
+            
+            progress_bar.empty()
+            
+            # Create new enriched DataFrame
+            df_display = pd.DataFrame(planning_data)
+            
+            # Add 'sec' to Duration column
+            dur_col = next((c for c in df_display.columns if 'dur' in c.lower()), None)
+            if dur_col:
+                df_display[dur_col] = df_display[dur_col].astype(str) + " sec"
+            
+            # Reorder columns to put Name and Planning info first
+            priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set']
+            
+            # Ensure Priority is visible and upfront
+            if pri_col and pri_col in df_display.columns:
+                priority_cols.insert(1, pri_col)
+
+            other_cols = [c for c in df_display.columns if c not in priority_cols]
+            df_display = df_display[priority_cols + other_cols]
+
+            targets = df_display[target_col].unique()
             obj_name = st.selectbox("Select Target", targets)
             
             if obj_name:
@@ -368,18 +546,17 @@ elif target_mode == "Cosmic Cataclysm":
             
             # Display data
             st.subheader("Available Targets")
-            display_df = df_alerts.copy()
             
-            # Remove columns that are not useful for target selection
+            # Filter columns for display
             cols_to_remove_keywords = ['link', 'deeplink', 'exposure', 'cadence', 'gain', 'exp', 'cad']
             actual_cols_to_drop = [
-                col for col in display_df.columns 
+                col for col in df_display.columns 
                 if any(keyword in col.lower() for keyword in cols_to_remove_keywords)
             ]
-            if actual_cols_to_drop:
-                display_df = display_df.drop(columns=actual_cols_to_drop)
             
-            st.dataframe(display_df)
+            final_table = df_display.drop(columns=actual_cols_to_drop, errors='ignore')
+            
+            st.dataframe(final_table)
 
             st.download_button(
                 label="Download Scraped Data (CSV)",
@@ -390,7 +567,7 @@ elif target_mode == "Cosmic Cataclysm":
         else:
             st.error(f"Could not find 'Name' column. Found: {cols}")
             st.dataframe(df_alerts)
-    else:
+    elif lat is not None and lon is not None:
         st.error("Failed to scrape data. Please check the scraper logs.")
 
 elif target_mode == "Manual RA/Dec":

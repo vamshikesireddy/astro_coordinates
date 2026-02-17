@@ -9,3 +9,5 @@ streamlit>=1.40.0
 streamlit-js-eval
 streamlit-searchbox
 astroquery
+PyGithub
+PyYAML

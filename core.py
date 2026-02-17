@@ -2,6 +2,7 @@ from astropy.coordinates import AltAz
 from astropy.time import Time
 from astropy import units as u
 import pytz
+import math
 from datetime import timedelta
 from utils import azimuth_to_compass
 
@@ -40,3 +41,75 @@ def compute_trajectory(sky_coord, location, start_time_local, duration_minutes=2
             "Constellation": constellation
         })
     return results
+
+def calculate_planning_info(sky_coord, location, start_time):
+    """
+    Calculates summary planning info (Rise, Transit, Set) for a target.
+    Uses geometric approximation for speed.
+    """
+    t_utc = start_time.astimezone(pytz.utc)
+    astro_time = Time(t_utc)
+    
+    # 2. Constellation
+    constellation = sky_coord.get_constellation(short_name=True)
+
+    # 3. Rise/Set/Transit Approximation
+    # Calculate Local Sidereal Time (LST)
+    lst = astro_time.sidereal_time('mean', longitude=location.lon)
+    
+    # Hour Angle (HA) for Transit (when HA = 0, i.e., LST = RA)
+    # RA is in degrees, LST is in hourangle. Convert RA to hourangle.
+    ra_ha = sky_coord.ra.hour
+    lst_ha = lst.hour
+    
+    # Time difference to transit (in hours)
+    diff_hours = (ra_ha - lst_ha) % 24
+    if diff_hours > 12: diff_hours -= 24
+    
+    transit_time = start_time + timedelta(hours=diff_hours)
+    tz_str = start_time.strftime("%Z")
+    
+    # Calculate semi-diurnal arc (time from rise to transit)
+    # cos(H) = (sin(alt) - sin(lat)sin(dec)) / (cos(lat)cos(dec))
+    # Geometric rise is alt = 0 (ignoring refraction for planning speed)
+    lat_rad = location.lat.rad
+    dec_rad = sky_coord.dec.rad
+    
+    try:
+        cos_h = (math.sin(-0.01) - math.sin(lat_rad) * math.sin(dec_rad)) / (math.cos(lat_rad) * math.cos(dec_rad))
+        
+        if cos_h < -1:
+            status = "Always Up (Circumpolar)"
+            rise_str = "---"
+            set_str = "---"
+        elif cos_h > 1:
+            status = "Never Rises"
+            rise_str = "---"
+            set_str = "---"
+        else:
+            h_rad = math.acos(cos_h)
+            h_hours = math.degrees(h_rad) / 15.0
+            
+            rise_time = transit_time - timedelta(hours=h_hours)
+            set_time = transit_time + timedelta(hours=h_hours)
+            
+            # Format times
+            time_fmt = f"%H:%M {tz_str}"
+            return {
+                "Constellation": constellation,
+                "Transit": transit_time.strftime(time_fmt),
+                "Rise": rise_time.strftime(time_fmt),
+                "Set": set_time.strftime(time_fmt),
+                "Status": "Visible"
+            }
+            
+    except Exception:
+        status = "Error"
+
+    return {
+        "Constellation": constellation,
+        "Transit": transit_time.strftime(f"%H:%M {tz_str}"),
+        "Rise": "---",
+        "Set": "---",
+        "Status": status if 'status' in locals() else "Error"
+    }
