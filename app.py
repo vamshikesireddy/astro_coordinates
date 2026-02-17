@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import pandas as pd
 import geocoder
 import pytz
@@ -270,6 +271,58 @@ elif target_mode == "Asteroid (JPL Horizons)":
 elif target_mode == "Cosmic Cataclysm":
     st.info("Fetching latest alerts from Unistellar (via Selenium scrape)...")
     
+    # --- Global Blocklist & Admin Logic ---
+    BLOCKLIST_FILE = "blocklist.txt"
+    PENDING_FILE = "pending_blocks.txt"
+
+    def get_file_list(filepath):
+        if os.path.exists(filepath):
+            with open(filepath, "r") as f:
+                return [line.strip() for line in f if line.strip()]
+        return []
+
+    # 1. Report UI (Public)
+    with st.expander("🚩 Report False/Invalid Event/Concluded Events"):
+        st.caption("Found a false or concluded event? Submit it for review. It will be hidden for everyone once approved.")
+        report_name = st.text_input("Event Name to Block")
+        if st.button("Submit Report"):
+            if report_name:
+                # Append to pending file
+                with open(PENDING_FILE, "a") as f:
+                    f.write(f"{report_name}\n")
+                st.success(f"Report for '{report_name}' submitted for review.")
+            else:
+                st.warning("Please enter a name.")
+
+    # 2. Admin UI (Restricted)
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("🔐 Admin Review"):
+            admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_input")
+            
+            # Securely retrieve password from Streamlit secrets
+            # If not set, returns None, making login impossible (secure default)
+            correct_pass = st.secrets.get("ADMIN_PASSWORD")
+            
+            if correct_pass and admin_pass == correct_pass:
+                st.markdown("### Pending Requests")
+                pending_reqs = get_file_list(PENDING_FILE)
+                if not pending_reqs:
+                    st.info("No pending requests.")
+                for req in pending_reqs:
+                    st.text(req)
+                    c1, c2 = st.columns(2)
+                    if c1.button("✅ Accept", key=f"acc_{req}"):
+                        with open(BLOCKLIST_FILE, "a") as f: f.write(f"{req}\n")
+                        # Remove from pending (rewrite file excluding this req)
+                        remaining = [r for r in pending_reqs if r != req]
+                        with open(PENDING_FILE, "w") as f: f.write("\n".join(remaining) + "\n")
+                        st.rerun()
+                    if c2.button("❌ Reject", key=f"rej_{req}"):
+                        remaining = [r for r in pending_reqs if r != req]
+                        with open(PENDING_FILE, "w") as f: f.write("\n".join(remaining) + "\n")
+                        st.rerun()
+
     @st.cache_data(ttl=3600, show_spinner="Scraping data...")
     def get_scraped_data():
         return scrape_unistellar_table()
@@ -287,6 +340,12 @@ elif target_mode == "Cosmic Cataclysm":
         dec_col = next((c for c in cols if c.lower() in ['dec', 'declination']), None)
         
         if target_col:
+            # --- Apply Global Blocklist Filter ---
+            blocked_targets = get_file_list(BLOCKLIST_FILE)
+            if blocked_targets:
+                # Filter out rows where target name contains any blocked string (case-insensitive)
+                df_alerts = df_alerts[~df_alerts[target_col].astype(str).apply(lambda x: any(b.lower() in x.lower() for b in blocked_targets))]
+            
             targets = df_alerts[target_col].unique()
             obj_name = st.selectbox("Select Target", targets)
             
@@ -307,15 +366,19 @@ elif target_mode == "Cosmic Cataclysm":
                     except Exception as e:
                         st.error(f"Error parsing coordinates: {e}")
             
-            # Display data with shortened links
+            # Display data
             st.subheader("Available Targets")
-            st.info("ℹ️ **Note:** The links in this table are for the Unistellar app. For other telescopes, please use the **RA/Dec** coordinates to point to the object.")
             display_df = df_alerts.copy()
-            link_col = next((c for c in display_df.columns if 'link' in c.lower()), None)
-            if link_col:
-                display_df[link_col] = display_df[link_col].apply(
-                    lambda x: "unistellar://..." if isinstance(x, str) and x.startswith("unistellar://") else x
-                )
+            
+            # Remove columns that are not useful for target selection
+            cols_to_remove_keywords = ['link', 'deeplink', 'exposure', 'cadence', 'gain', 'exp', 'cad']
+            actual_cols_to_drop = [
+                col for col in display_df.columns 
+                if any(keyword in col.lower() for keyword in cols_to_remove_keywords)
+            ]
+            if actual_cols_to_drop:
+                display_df = display_df.drop(columns=actual_cols_to_drop)
+            
             st.dataframe(display_df)
 
             st.download_button(
