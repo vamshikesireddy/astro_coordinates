@@ -72,13 +72,28 @@ def plot_visibility_timeline(df):
     chart_data['_rise_naive'] = chart_data['_rise_datetime'].apply(lambda x: x.replace(tzinfo=None) if pd.notnull(x) else None)
     chart_data['_set_naive'] = chart_data['_set_datetime'].apply(lambda x: x.replace(tzinfo=None) if pd.notnull(x) else None)
     
+    # Sort Toggle
+    sort_option = st.radio(
+        "Sort Graph By:",
+        ["Default", "Earliest Rise", "Earliest Set"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    
+    if sort_option == "Earliest Rise":
+        sort_arg = alt.EncodingSortField(field='_rise_naive', order='ascending')
+    elif sort_option == "Earliest Set":
+        sort_arg = alt.EncodingSortField(field='_set_naive', order='ascending')
+    else:
+        sort_arg = list(chart_data['Name'])
+
     # Dynamic height: 30px per item + buffer to ensure all labels are visible
     row_height = 30
     chart_height = len(chart_data) * row_height
 
     # Base Chart
     base = alt.Chart(chart_data).encode(
-        y=alt.Y('Name', sort='x', title=None),
+        y=alt.Y('Name', sort=sort_arg, title=None),
         tooltip=['Name', 'Rise', 'Transit', 'Set', 'Constellation', 'Status']
     )
 
@@ -499,6 +514,20 @@ elif target_mode == "Cosmic Cataclysm":
             p_items = list(current_config["priorities"].items())
             p_df = pd.DataFrame(p_items, columns=["Target", "Priority"])
             st.dataframe(p_df, hide_index=True, width="stretch")
+
+    # Display Blocked/Cancelled Targets
+    if current_config.get("cancelled") or current_config.get("too_faint"):
+        with st.expander("🚫 Invalid & Cancelled Events"):
+            st.caption("These targets are hidden from the main list:")
+            
+            blocked_data = []
+            for t in current_config.get("cancelled", []):
+                blocked_data.append({"Target": t, "Reason": "Cancelled"})
+            for t in current_config.get("too_faint", []):
+                blocked_data.append({"Target": t, "Reason": "Invalid (Too Faint)"})
+            
+            if blocked_data:
+                st.dataframe(pd.DataFrame(blocked_data), hide_index=True, width="stretch")
 
     # 2. Admin UI (Restricted)
     with st.sidebar:
