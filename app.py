@@ -1,6 +1,7 @@
 import streamlit as st
 import yaml
 import os
+import math
 import pandas as pd
 import geocoder
 import pytz
@@ -8,6 +9,12 @@ from datetime import datetime, timedelta
 from timezonefinder import TimezoneFinder
 import altair as alt
 from astropy.coordinates import EarthLocation, SkyCoord, FK5, AltAz
+try:
+    from astropy.coordinates import get_moon, get_sun
+except ImportError:
+    from astropy.coordinates import get_body
+    def get_moon(time, location=None, ephemeris=None): return get_body("moon", time, location, ephemeris=ephemeris)
+    def get_sun(time): return get_body("sun", time)
 from astropy import units as u
 from astropy.time import Time
 
@@ -33,6 +40,16 @@ from backend.scrape import scrape_unistellar_table
 
 st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
+def get_moon_status(illumination, separation):
+    if illumination < 15:
+        return "🌑 Dark Sky"
+    elif separation < 30:
+        return "⛔ Avoid"
+    elif separation < 60:
+        return "⚠️ Caution"
+    else:
+        return "✅ Safe"
+
 @st.cache_data(ttl=3600, show_spinner="Calculating planetary visibility...")
 def get_planet_summary(lat, lon, start_time):
     planet_map = {
@@ -43,16 +60,33 @@ def get_planet_summary(lat, lon, start_time):
     utc_start = start_time.astimezone(pytz.utc)
     obs_time_str = utc_start.strftime('%Y-%m-%d %H:%M:%S')
     
+    # Calculate Moon info
+    t_moon = Time(start_time)
+    try:
+        moon_loc = get_moon(t_moon, location)
+        sun_loc = get_sun(t_moon)
+        elongation = sun_loc.separation(moon_loc)
+        moon_illum = float(0.5 * (1 - math.cos(elongation.rad))) * 100
+    except:
+        moon_loc = None
+        moon_illum = 0
+    
     data = []
     for p_name, p_id in planet_map.items():
         try:
             _, sky_coord = resolve_planet(p_id, obs_time_str=obs_time_str)
             details = calculate_planning_info(sky_coord, location, start_time)
             
+            moon_sep = 0.0
+            if moon_loc:
+                moon_sep = sky_coord.separation(moon_loc).degree
+            
             row = {
                 "Name": p_name,
                 "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
                 "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "Moon Sep (°)": round(moon_sep, 1) if moon_loc else 0,
+                "Moon Status": get_moon_status(moon_illum, moon_sep) if moon_loc else "",
             }
             row.update(details)
             data.append(row)
@@ -91,12 +125,9 @@ def plot_visibility_timeline(df):
     else:
         sort_arg = list(chart_data['Name'])
 
-    # Dynamic height: 30px per item + buffer to ensure all labels are visible
-    row_height = 40
-    chart_height = len(chart_data) * row_height
     # Dynamic height: Ensure minimum height to prevent clipping of axis/title
-    row_height = 50
-    chart_height = max(len(chart_data) * row_height, 200)
+    row_height = 60
+    chart_height = max(len(chart_data) * row_height, 250)
 
     # Base Chart
     base = alt.Chart(chart_data).encode(
@@ -132,6 +163,10 @@ hide_st_style = """
             <style>
             #MainMenu {visibility: visible;}
             footer {visibility: hidden;}
+            /* Reduce metric font size */
+            [data-testid="stMetricValue"] {
+                font-size: 1.25rem !important;
+            }
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -145,7 +180,7 @@ with st.expander("ℹ️ How to Use"):
     *   **Location:** Search for a city, use Browser GPS, or enter coordinates manually.
     *   **Time:** Set your observation start date and time.
     *   **Duration:** Choose how long you plan to image.
-    *   **Observational Filters:** Set minimum Altitude and Azimuth range to filter out targets blocked by terrain or horizon.
+    *   **Observational Filters:** Set Altitude range (Min/Max), Azimuth, and Moon Separation to filter targets.
 
     ### 2. Choose a Target
     Select one of the five modes:
@@ -246,10 +281,14 @@ if st.session_state.last_timezone != timezone_str:
     st.session_state.last_timezone = timezone_str
     now_local = datetime.now(local_tz)
     st.session_state.selected_date = now_local.date()
-    st.session_state.selected_time = now_local.time()
+    if now_local.hour >= 18:
+        st.session_state.selected_time = now_local.time()
+    else:
+        st.session_state.selected_time = now_local.replace(hour=18, minute=0, second=0, microsecond=0).time()
+
     # Update widget keys to reflect changes immediately
-    st.session_state['_new_date'] = now_local.date()
-    st.session_state['_new_time'] = now_local.time()
+    st.session_state['_new_date'] = st.session_state.selected_date
+    st.session_state['_new_time'] = st.session_state.selected_time
 
 # 3. Date & Time
 st.sidebar.subheader("🕒 Observation Start")
@@ -259,7 +298,10 @@ now = datetime.now(local_tz)
 if 'selected_date' not in st.session_state:
     st.session_state['selected_date'] = now.date()
 if 'selected_time' not in st.session_state:
-    st.session_state['selected_time'] = now.time()
+    if now.hour >= 18:
+        st.session_state['selected_time'] = now.time()
+    else:
+        st.session_state['selected_time'] = now.replace(hour=18, minute=0, second=0, microsecond=0).time()
 
 def update_date():
     st.session_state.selected_date = st.session_state._new_date
@@ -282,13 +324,55 @@ start_time = local_tz.localize(start_time)
 # 4. Duration
 st.sidebar.subheader("⏳ Duration")
 duration_options = [60, 120, 180, 240, 300, 360, 480, 600, 720, 840, 960, 1080, 1200, 1320, 1440]
-duration = st.sidebar.selectbox("Minutes", options=duration_options, index=3) # Default 240
+duration = st.sidebar.selectbox("Minutes", options=duration_options, index=8) # Default 720 (12 hours)
 
 # 5. Observational Filters
 st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
-min_alt = st.sidebar.slider("Minimum Altitude (°)", 0, 90, 20, help="Target must reach at least this altitude during the observation window.")
+alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (20, 90), help="Target must be within this altitude range (Min to Max).")
+min_alt, max_alt = alt_range
 az_range = st.sidebar.slider("Azimuth Window (°)", 0, 360, (0, 360), help="Target must be within this compass direction (0=N, 90=E, 180=S, 270=W).")
+min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
+st.sidebar.markdown("""
+<small>
+<b>Why this matters:</b> Moonlight washes out faint details.<br>
+• <b>< 30°</b>: High risk (avoid for galaxies/nebulae).<br>
+• <b>30°-60°</b>: Okay for clusters or narrowband.<br>
+• <b>> 60°</b>: Ideal dark skies.
+</small>
+""", unsafe_allow_html=True)
+
+# Calculate Moon Info
+moon_loc = None
+if lat is not None and lon is not None:
+    try:
+        location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
+        t_moon = Time(start_time)
+        moon_loc = get_moon(t_moon, location)
+        sun_loc = get_sun(t_moon)
+        elongation = sun_loc.separation(moon_loc)
+        moon_illum = float(0.5 * (1 - math.cos(elongation.rad))) * 100
+        
+        moon_altaz = moon_loc.transform_to(AltAz(obstime=t_moon, location=location))
+        moon_alt = moon_altaz.alt.degree
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown(f"""
+        **🌑 Moon Status:**
+        *   Illumination: **{moon_illum:.0f}%**
+        *   Altitude: **{moon_alt:.0f}°**
+        """)
+        st.sidebar.markdown("""
+        <small>
+        <b>Legend:</b><br>
+        🌑 <b>Dark Sky</b>: Moon < 15% illum.<br>
+        ⛔ <b>Avoid</b>: Moon > 15% & Sep < 30°.<br>
+        ⚠️ <b>Caution</b>: Moon > 15% & Sep 30°-60°.<br>
+        ✅ <b>Safe</b>: Moon > 15% & Sep > 60°.
+        </small>
+        """, unsafe_allow_html=True)
+    except Exception:
+        pass
 
 # ---------------------------
 # MAIN: Target Selection
@@ -347,13 +431,29 @@ elif target_mode == "Planet (JPL Horizons)":
                     # Check visibility at start, mid, end
                     is_visible = False
                     check_times = [start_time, start_time + timedelta(minutes=duration/2), start_time + timedelta(minutes=duration)]
+                    moon_locs = []
                     
-                    for t_check in check_times:
+                    # Pre-calculate Moon positions for these times
+                    if moon_loc:
+                        try:
+                            moon_locs = [get_moon(Time(t), location) for t in check_times]
+                        except:
+                            moon_locs = [moon_loc] * 3
+
+                    for i, t_check in enumerate(check_times):
                         frame = AltAz(obstime=Time(t_check), location=location)
                         aa = sc.transform_to(frame)
-                        if aa.alt.degree >= min_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
-                            is_visible = True
-                            break
+                        if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                            # Check Moon
+                            if moon_locs:
+                                current_moon = moon_locs[i]
+                                sep = sc.separation(current_moon).degree
+                                if sep >= min_moon_sep:
+                                    is_visible = True
+                                    break
+                            else:
+                                is_visible = True
+                                break
                     
                     if is_visible:
                         visible_indices.append(idx)
@@ -364,11 +464,11 @@ elif target_mode == "Planet (JPL Horizons)":
             
             if not df_planets_filtered.empty:
                 st.caption("Visibility for tonight (Filtered by Altitude/Azimuth):")
-                cols = ["Name", "Constellation", "Rise", "Transit", "Set", "RA", "Dec", "Status"]
+                cols = ["Name", "Constellation", "Rise", "Transit", "Set", "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
                 st.dataframe(df_planets_filtered[cols], hide_index=True, width="stretch")
                 plot_visibility_timeline(df_planets_filtered)
             else:
-                st.warning(f"No planets meet your criteria (Alt > {min_alt}°, Az {az_range}) during the selected window.")
+                st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az {az_range}, Moon Sep > {min_moon_sep}°) during the selected window.")
     else:
         st.info("Set location in sidebar to see visibility summary for all planets.")
 
@@ -735,35 +835,66 @@ elif target_mode == "Cosmic Cataclysm":
                     is_obs = True
                     filt_reason = ""
 
+                    # Moon Check (Start Time for display)
+                    moon_sep = 0.0
+                    moon_status = ""
+                    if moon_loc:
+                        moon_sep = sc.separation(moon_loc).degree
+                        
+                        # Determine status based on illumination and separation
+                        if 'moon_illum' in locals():
+                             moon_status = get_moon_status(moon_illum, moon_sep)
+                    
+                    # Pre-calculated moon_locs logic is needed here too
+
                     # 1. Basic Status
-                    if details['Status'] == "Never Rises":
-                        is_obs = False
-                        filt_reason = "Never Rises"
-                    elif details['Status'] == "Error":
-                        is_obs = False
-                        filt_reason = "Coord Error"
+                    if is_obs:
+                        if details['Status'] == "Never Rises":
+                            is_obs = False
+                            filt_reason = "Never Rises"
+                        elif details['Status'] == "Error":
+                            is_obs = False
+                            filt_reason = "Coord Error"
 
                     # 2. Advanced Filters (Alt/Az)
                     if is_obs:
                         # Check Start, Mid, End of window
                         check_times = [start_time, start_time + timedelta(minutes=duration/2), start_time + timedelta(minutes=duration)]
+                        
+                        # Reuse or calculate moon positions for these times
+                        moon_locs_dynamic = []
+                        if moon_loc:
+                            try:
+                                moon_locs_dynamic = [get_moon(Time(t), location) for t in check_times]
+                            except:
+                                moon_locs_dynamic = [moon_loc] * 3
+
                         passed_checks = False
-                        for t_check in check_times:
+                        for i, t_check in enumerate(check_times):
                             # Quick AltAz check
                             frame = AltAz(obstime=Time(t_check), location=location)
                             aa = sc.transform_to(frame)
-                            if aa.alt.degree >= min_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
-                                passed_checks = True
-                                break
+                            if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                                # Check Moon dynamically
+                                if moon_locs_dynamic:
+                                    sep_dyn = sc.separation(moon_locs_dynamic[i]).degree
+                                    if sep_dyn >= min_moon_sep:
+                                        passed_checks = True
+                                        break
+                                else:
+                                    passed_checks = True
+                                    break
                         if not passed_checks:
                             is_obs = False
-                            filt_reason = f"Alt < {min_alt}° or Az out of range (during window)"
+                            filt_reason = f"Filters failed (Alt/Az or Moon < {min_moon_sep}°) during window"
 
                     # Merge row data with details
                     row_dict = row.to_dict()
                     row_dict.update(details)
                     row_dict['is_observable'] = is_obs
                     row_dict['filter_reason'] = filt_reason
+                    row_dict['Moon Sep (°)'] = round(moon_sep, 1) if moon_loc else 0
+                    row_dict['Moon Status'] = moon_status
                     planning_data.append(row_dict)
                 except Exception:
                     # If coord parsing fails, just keep original row
@@ -783,7 +914,7 @@ elif target_mode == "Cosmic Cataclysm":
                 df_display[dur_col] = df_display[dur_col].astype(str) + " sec"
             
             # Reorder columns to put Name and Planning info first
-            priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set']
+            priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set', 'Moon Status', 'Moon Sep (°)']
             
             # Ensure Priority is visible and upfront
             if pri_col and pri_col in df_display.columns:
@@ -934,26 +1065,70 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     
     df = pd.DataFrame(results)
     
+    # --- Add Moon Columns to Detailed Data ---
+    if lat is not None and lon is not None:
+        try:
+            # Generate time steps matching compute_trajectory (10 min steps)
+            steps = len(df)
+            times_utc = [(start_time + timedelta(minutes=i*10)).astimezone(pytz.utc) for i in range(steps)]
+            t_grid = Time(times_utc)
+            
+            # Get Moon positions for all steps
+            moon_locs = get_moon(t_grid, location)
+            
+            # Calculate Illumination (approx constant for session)
+            sun_loc = get_sun(Time(start_time))
+            elongation = sun_loc.separation(moon_locs[0])
+            moon_illum = float(0.5 * (1 - math.cos(elongation.rad))) * 100
+            
+            sep_list = []
+            status_list = []
+            
+            for i in range(steps):
+                t_coord = ephem_coords[i] if ephem_coords and i < len(ephem_coords) else sky_coord
+                sep = t_coord.separation(moon_locs[i]).degree
+                sep_list.append(round(sep, 1))
+                status_list.append(get_moon_status(moon_illum, sep))
+            
+            df["Moon Sep (°)"] = sep_list
+            df["Moon Status"] = status_list
+        except Exception:
+            pass
+
+    # --- Moon Check ---
+    current_moon_sep = None
+    moon_status_text = "N/A"
+    if moon_loc and sky_coord:
+        sep = sky_coord.separation(moon_loc).degree
+        current_moon_sep = sep
+        if sep < min_moon_sep:
+             st.warning(f"⚠️ **Moon Warning:** Target is {sep:.1f}° from the Moon (Limit: {min_moon_sep}°).")
+
+        if 'moon_illum' in locals():
+             status = get_moon_status(moon_illum, sep)
+             moon_status_text = f"{sep:.1f}° ({status})"
+
     # --- Observational Filter Check ---
     # Check if any point in the trajectory meets the criteria
     visible_points = df[
-        (df["Altitude (°)"] >= min_alt) & 
+        (df["Altitude (°)"].between(min_alt, max_alt)) & 
         (df["Azimuth (°)"].between(az_range[0], az_range[1]))
     ]
     
     if visible_points.empty:
-        st.warning(f"⚠️ **Visibility Warning:** This target does not meet your Observational Filters (Alt > {min_alt}°, Az {az_range}) at any point during the selected window.")
+        st.warning(f"⚠️ **Visibility Warning:** Target does not meet filters (Alt [{min_alt}°, {max_alt}°], Az {az_range}) during window.")
     
     # Metrics
     max_alt = df["Altitude (°)"].max()
     best_time = df.loc[df["Altitude (°)"].idxmax()]["Local Time"]
     constellation = df["Constellation"].iloc[0]
     
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns([1, 1, 1, 1, 2])
     m1.metric("Max Altitude", f"{max_alt}°")
     m2.metric("Best Time", best_time.split(" ")[1])
     m3.metric("Direction at Max", df.loc[df["Altitude (°)"].idxmax()]["Direction"])
     m4.metric("Constellation", constellation)
+    m5.metric("Moon Sep", moon_status_text)
 
     # Chart
     st.subheader("Altitude vs Time")
