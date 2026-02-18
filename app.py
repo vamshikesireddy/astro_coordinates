@@ -30,7 +30,7 @@ from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_eph
 from backend.core import compute_trajectory, calculate_planning_info
 from backend.scrape import scrape_unistellar_table
 
-st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide")
+st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
 @st.cache_data(ttl=3600, show_spinner="Calculating planetary visibility...")
 def get_planet_summary(lat, lon, start_time):
@@ -64,7 +64,6 @@ hide_st_style = """
             <style>
             #MainMenu {visibility: visible;}
             footer {visibility: hidden;}
-            header {visibility: hidden;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -219,6 +218,9 @@ duration = st.sidebar.selectbox("Minutes", options=duration_options, index=3) # 
 # ---------------------------
 # MAIN: Target Selection
 # ---------------------------
+if (lat is None or lat == 0.0) and (lon is None or lon == 0.0):
+    st.info("📍 **Mobile Users:** Tap the arrow `>` (top-left) to open the sidebar and set your Location!")
+
 st.header("1. Choose Target")
 
 target_mode = st.radio(
