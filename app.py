@@ -125,6 +125,7 @@ if get_geolocation:
                 st.session_state.lon = loc['coords']['longitude']
             else:
                 st.sidebar.error(f"GPS Error: {loc.get('error', 'Unknown error')}")
+                st.sidebar.write(loc)
 else:
     st.sidebar.info("Install `streamlit-js-eval` for GPS support.")
 
