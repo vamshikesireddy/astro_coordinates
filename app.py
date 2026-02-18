@@ -64,7 +64,8 @@ hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
-            [data-testid="stToolbar"] {visibility: hidden;}
+            [data-testid="stToolbar"] {display: none;}
+            [data-testid="stHeader"] {visibility: visible;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
