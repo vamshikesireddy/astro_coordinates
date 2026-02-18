@@ -733,10 +733,10 @@ elif target_mode == "Cosmic Cataclysm":
                 def highlight_row(row):
                     val = str(row[pri_col]).upper().strip()
                     style = ""
-                    if "URGENT" in val: style = "background-color: #ff4b4b; color: white; font-weight: bold"
-                    elif "HIGH" in val: style = "background-color: #ffa500; color: black; font-weight: bold"
-                    elif "MEDIUM" in val: style = "background-color: #ffe312; color: black"
-                    elif "LOW" in val: style = "background-color: #90ee90; color: black"
+                    if "URGENT" in val: style = "background-color: #ef5350; color: white; font-weight: bold"
+                    elif "HIGH" in val: style = "background-color: #ffb74d; color: black; font-weight: bold"
+                    elif "MEDIUM" in val: style = "background-color: #fff59d; color: black"
+                    elif "LOW" in val: style = "background-color: #c8e6c9; color: black"
                     return [style] * len(row)
 
                 st.dataframe(final_table.style.apply(highlight_row, axis=1), width="stretch")
