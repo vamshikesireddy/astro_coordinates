@@ -120,8 +120,11 @@ if get_geolocation:
     if st.sidebar.checkbox("📍 Use Browser GPS"):
         loc = get_geolocation()
         if loc:
-            st.session_state.lat = loc['coords']['latitude']
-            st.session_state.lon = loc['coords']['longitude']
+            if 'coords' in loc:
+                st.session_state.lat = loc['coords']['latitude']
+                st.session_state.lon = loc['coords']['longitude']
+            else:
+                st.sidebar.error(f"GPS Error: {loc.get('error', 'Unknown error')}")
 else:
     st.sidebar.info("Install `streamlit-js-eval` for GPS support.")
 
