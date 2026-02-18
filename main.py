@@ -8,8 +8,8 @@ from astropy import units as u
 from astropy.time import Time
 
 # Import from local modules
-from resolvers import resolve_simbad, resolve_horizons
-from astro_core import compute_trajectory
+from backend.resolvers import resolve_simbad, resolve_horizons
+from backend.core import compute_trajectory
 
 def get_user_location():
     g = geocoder.ip('me')

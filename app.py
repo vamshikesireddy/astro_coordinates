@@ -26,9 +26,9 @@ except ImportError:
     Github = None
 
 # Import from local modules
-from resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
-from astro_core import compute_trajectory, calculate_planning_info
-from astro_scrape import scrape_unistellar_table
+from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
+from backend.core import compute_trajectory, calculate_planning_info
+from backend.scrape import scrape_unistellar_table
 
 st.set_page_config(page_title="Astro Coordinates", page_icon="🔭", layout="wide")
 
