@@ -4,10 +4,10 @@ import os
 import pandas as pd
 import geocoder
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 from timezonefinder import TimezoneFinder
 import altair as alt
-from astropy.coordinates import EarthLocation, SkyCoord, FK5
+from astropy.coordinates import EarthLocation, SkyCoord, FK5, AltAz
 from astropy import units as u
 from astropy.time import Time
 
@@ -72,6 +72,10 @@ def plot_visibility_timeline(df):
     chart_data['_rise_naive'] = chart_data['_rise_datetime'].apply(lambda x: x.replace(tzinfo=None) if pd.notnull(x) else None)
     chart_data['_set_naive'] = chart_data['_set_datetime'].apply(lambda x: x.replace(tzinfo=None) if pd.notnull(x) else None)
     
+    # Create label columns: Show "Always Up" for circumpolar objects, otherwise show time
+    chart_data['rise_label'] = chart_data.apply(lambda x: "Always Up" if "Always Up" in str(x['Status']) else x['_rise_naive'].strftime('%m-%d %H:%M'), axis=1)
+    chart_data['set_label'] = chart_data.apply(lambda x: "" if "Always Up" in str(x['Status']) else x['_set_naive'].strftime('%m-%d %H:%M'), axis=1)
+
     # Sort Toggle
     sort_option = st.radio(
         "Sort Graph By:",
@@ -88,17 +92,20 @@ def plot_visibility_timeline(df):
         sort_arg = list(chart_data['Name'])
 
     # Dynamic height: 30px per item + buffer to ensure all labels are visible
-    row_height = 30
+    row_height = 40
     chart_height = len(chart_data) * row_height
+    # Dynamic height: Ensure minimum height to prevent clipping of axis/title
+    row_height = 50
+    chart_height = max(len(chart_data) * row_height, 200)
 
     # Base Chart
     base = alt.Chart(chart_data).encode(
-        y=alt.Y('Name', sort=sort_arg, title=None),
+        y=alt.Y('Name', sort=sort_arg, title=None, axis=alt.Axis(labelOverlap=False, labelLimit=300)),
         tooltip=['Name', 'Rise', 'Transit', 'Set', 'Constellation', 'Status']
     )
 
     # Bars
-    bars = base.mark_bar(cornerRadius=3, height=20).encode(
+    bars = base.mark_bar(cornerRadius=3, height=30).encode(
         x=alt.X('_rise_naive', title='Local Time', axis=alt.Axis(format='%m-%d %H:%M', orient='top')),
         x2='_set_naive',
         color=alt.Color('Name', legend=None)
@@ -106,16 +113,16 @@ def plot_visibility_timeline(df):
 
     # Text Labels (Rise & Set times on the bars)
     text_rise = base.mark_text(align='left', baseline='middle', dx=5, color='white').encode(
-        x='_rise_naive', text=alt.Text('_rise_naive', format='%m-%d %H:%M')
+        x='_rise_naive', text=alt.Text('rise_label')
     )
     text_set = base.mark_text(align='right', baseline='middle', dx=-5, color='white').encode(
-        x='_set_naive', text=alt.Text('_set_naive', format='%m-%d %H:%M')
+        x='_set_naive', text=alt.Text('set_label')
     )
 
     chart = (bars + text_rise + text_set).properties(title="Visibility Window (Rise → Set)", height=chart_height)
 
     if len(chart_data) > 10:
-        with st.container(height=400):
+        with st.container(height=500):
             st.altair_chart(chart, use_container_width=True)
     else:
         st.altair_chart(chart, use_container_width=True)
@@ -273,8 +280,14 @@ start_time = local_tz.localize(start_time)
 
 # 4. Duration
 st.sidebar.subheader("⏳ Duration")
-duration_options = [60, 120, 180, 240, 300, 360, 480, 600, 720]
+duration_options = [60, 120, 180, 240, 300, 360, 480, 600, 720, 840, 960, 1080, 1200, 1320, 1440]
 duration = st.sidebar.selectbox("Minutes", options=duration_options, index=3) # Default 240
+
+# 5. Observational Filters
+st.sidebar.subheader("🔭 Observational Filters")
+st.sidebar.caption("Applies to lists and visibility warnings.")
+min_alt = st.sidebar.slider("Minimum Altitude (°)", 0, 90, 20, help="Target must reach at least this altitude during the observation window.")
+az_range = st.sidebar.slider("Azimuth Window (°)", 0, 360, (0, 360), help="Target must be within this compass direction (0=N, 90=E, 180=S, 270=W).")
 
 # ---------------------------
 # MAIN: Target Selection
@@ -321,10 +334,40 @@ elif target_mode == "Planet (JPL Horizons)":
     if lat is not None and lon is not None:
         df_planets = get_planet_summary(lat, lon, start_time)
         if not df_planets.empty:
-            st.caption("Visibility for tonight:")
-            cols = ["Name", "Constellation", "Rise", "Transit", "Set", "RA", "Dec", "Status"]
-            st.dataframe(df_planets[cols], hide_index=True, width="stretch")
-            plot_visibility_timeline(df_planets)
+            # --- Filter Planets by Observational Criteria ---
+            location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
+            visible_indices = []
+            
+            for idx, row in df_planets.iterrows():
+                try:
+                    # Parse coordinate strings back to SkyCoord
+                    sc = SkyCoord(row['RA'], row['Dec'], frame='icrs')
+                    
+                    # Check visibility at start, mid, end
+                    is_visible = False
+                    check_times = [start_time, start_time + timedelta(minutes=duration/2), start_time + timedelta(minutes=duration)]
+                    
+                    for t_check in check_times:
+                        frame = AltAz(obstime=Time(t_check), location=location)
+                        aa = sc.transform_to(frame)
+                        if aa.alt.degree >= min_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                            is_visible = True
+                            break
+                    
+                    if is_visible:
+                        visible_indices.append(idx)
+                except:
+                    visible_indices.append(idx) # Keep on error
+            
+            df_planets_filtered = df_planets.loc[visible_indices]
+            
+            if not df_planets_filtered.empty:
+                st.caption("Visibility for tonight (Filtered by Altitude/Azimuth):")
+                cols = ["Name", "Constellation", "Rise", "Transit", "Set", "RA", "Dec", "Status"]
+                st.dataframe(df_planets_filtered[cols], hide_index=True, width="stretch")
+                plot_visibility_timeline(df_planets_filtered)
+            else:
+                st.warning(f"No planets meet your criteria (Alt > {min_alt}°, Az {az_range}) during the selected window.")
     else:
         st.info("Set location in sidebar to see visibility summary for all planets.")
 
@@ -687,13 +730,46 @@ elif target_mode == "Cosmic Cataclysm":
                     # Calculate details
                     details = calculate_planning_info(sc, location, start_time)
                     
+                    # --- Observability Check ---
+                    is_obs = True
+                    filt_reason = ""
+
+                    # 1. Basic Status
+                    if details['Status'] == "Never Rises":
+                        is_obs = False
+                        filt_reason = "Never Rises"
+                    elif details['Status'] == "Error":
+                        is_obs = False
+                        filt_reason = "Coord Error"
+
+                    # 2. Advanced Filters (Alt/Az)
+                    if is_obs:
+                        # Check Start, Mid, End of window
+                        check_times = [start_time, start_time + timedelta(minutes=duration/2), start_time + timedelta(minutes=duration)]
+                        passed_checks = False
+                        for t_check in check_times:
+                            # Quick AltAz check
+                            frame = AltAz(obstime=Time(t_check), location=location)
+                            aa = sc.transform_to(frame)
+                            if aa.alt.degree >= min_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                                passed_checks = True
+                                break
+                        if not passed_checks:
+                            is_obs = False
+                            filt_reason = f"Alt < {min_alt}° or Az out of range (during window)"
+
                     # Merge row data with details
                     row_dict = row.to_dict()
                     row_dict.update(details)
+                    row_dict['is_observable'] = is_obs
+                    row_dict['filter_reason'] = filt_reason
                     planning_data.append(row_dict)
                 except Exception:
                     # If coord parsing fails, just keep original row
-                    planning_data.append(row.to_dict())
+                    d = row.to_dict()
+                    d['is_observable'] = False
+                    d['filter_reason'] = "Data/Parse Error"
+                    planning_data.append(d)
             
             progress_bar.empty()
             
@@ -715,33 +791,64 @@ elif target_mode == "Cosmic Cataclysm":
             other_cols = [c for c in df_display.columns if c not in priority_cols]
             df_display = df_display[priority_cols + other_cols]
 
-            # Display data
-            st.subheader("Available Targets")
-            plot_visibility_timeline(df_display)
+            # Split Data
+            df_obs = df_display[df_display['is_observable'] == True].copy()
+            df_filt = df_display[df_display['is_observable'] == False].copy()
             
             # Filter columns for display
             cols_to_remove_keywords = ['link', 'deeplink', 'exposure', 'cadence', 'gain', 'exp', 'cad']
             actual_cols_to_drop = [
                 col for col in df_display.columns 
-                if any(keyword in col.lower() for keyword in cols_to_remove_keywords)
+                if any(keyword in col.lower() for keyword in cols_to_remove_keywords) or col in ['is_observable', 'filter_reason']
             ]
             # Also drop hidden columns used for plotting
             hidden_cols = [c for c in df_display.columns if c.startswith('_')]
-            final_table = df_display.drop(columns=actual_cols_to_drop + hidden_cols, errors='ignore')
             
-            if pri_col and pri_col in final_table.columns:
-                def highlight_row(row):
-                    val = str(row[pri_col]).upper().strip()
-                    style = ""
-                    if "URGENT" in val: style = "background-color: #ef5350; color: white; font-weight: bold"
-                    elif "HIGH" in val: style = "background-color: #ffb74d; color: black; font-weight: bold"
-                    elif "MEDIUM" in val: style = "background-color: #fff59d; color: black"
-                    elif "LOW" in val: style = "background-color: #c8e6c9; color: black"
-                    return [style] * len(row)
+            # Helper to style and display
+            def display_styled_table(df_in):
+                final_table = df_in.drop(columns=actual_cols_to_drop + hidden_cols, errors='ignore')
+                if pri_col and pri_col in final_table.columns:
+                    def highlight_row(row):
+                        val = str(row[pri_col]).upper().strip()
+                        style = ""
+                        if "URGENT" in val: style = "background-color: #ef5350; color: white; font-weight: bold"
+                        elif "HIGH" in val: style = "background-color: #ffb74d; color: black; font-weight: bold"
+                        elif "MEDIUM" in val: style = "background-color: #fff59d; color: black"
+                        elif "LOW" in val: style = "background-color: #c8e6c9; color: black"
+                        return [style] * len(row)
+                    st.dataframe(final_table.style.apply(highlight_row, axis=1), width="stretch")
+                else:
+                    st.dataframe(final_table, width="stretch")
 
-                st.dataframe(final_table.style.apply(highlight_row, axis=1), width="stretch")
-            else:
-                st.dataframe(final_table, width="stretch")
+            # Tabs
+            tab_obs, tab_filt = st.tabs([f"🎯 Observable ({len(df_obs)})", f"👻 Filtered ({len(df_filt)})"])
+            
+            with tab_obs:
+                st.subheader("Available Targets")
+                
+                plot_visibility_timeline(df_obs)
+
+                # Legend
+                st.markdown("""
+                **Priority Legend:** 
+                <span style='background-color: #ef5350; color: white; padding: 2px 6px; border-radius: 4px;'>URGENT</span> 
+                <span style='background-color: #ffb74d; color: black; padding: 2px 6px; border-radius: 4px;'>HIGH</span> 
+                <span style='background-color: #fff59d; color: black; padding: 2px 6px; border-radius: 4px;'>MEDIUM</span> 
+                <span style='background-color: #c8e6c9; color: black; padding: 2px 6px; border-radius: 4px;'>LOW</span>
+                """, unsafe_allow_html=True)
+                
+                display_styled_table(df_obs)
+            
+            with tab_filt:
+                st.caption("Targets hidden because they do not meet criteria within the **Observation Window** (Start Time + Duration) selected in the sidebar.")
+                if not df_filt.empty:
+                    # Show reason and timing context so user knows if it rises later
+                    base_cols = ['Name', 'filter_reason', 'Rise', 'Transit', 'Set']
+                    # Only show columns that actually exist
+                    show_cols = [c for c in base_cols if c in df_filt.columns]
+                    if pri_col and pri_col in df_filt.columns:
+                        show_cols.append(pri_col)
+                    st.dataframe(df_filt[show_cols], hide_index=True, width="stretch")
 
             st.download_button(
                 label="Download Scraped Data (CSV)",
@@ -825,6 +932,16 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
         results = compute_trajectory(sky_coord, location, start_time, duration_minutes=duration, ephemeris_coords=ephem_coords)
     
     df = pd.DataFrame(results)
+    
+    # --- Observational Filter Check ---
+    # Check if any point in the trajectory meets the criteria
+    visible_points = df[
+        (df["Altitude (°)"] >= min_alt) & 
+        (df["Azimuth (°)"].between(az_range[0], az_range[1]))
+    ]
+    
+    if visible_points.empty:
+        st.warning(f"⚠️ **Visibility Warning:** This target does not meet your Observational Filters (Alt > {min_alt}°, Az {az_range}) at any point during the selected window.")
     
     # Metrics
     max_alt = df["Altitude (°)"].max()
