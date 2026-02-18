@@ -70,23 +70,25 @@ def resolve_horizons(obj_name, obs_time_str="2026-02-13 00:30:00", location_code
 def get_horizons_ephemerides(obj_name, start_time, duration_minutes=240, step_minutes=10, location_code='500'):
     """Queries JPL Horizons for a range of times to get dynamic coordinates."""
     try:
-        # Generate time steps exactly like core.py to ensure alignment
-        steps = int(duration_minutes / step_minutes) + 1
-        jd_list = []
+        # Use start/stop/step to avoid URL length issues with explicit lists
+        t_start = Time(start_time)
+        end_time = start_time + timedelta(minutes=duration_minutes)
+        t_end = Time(end_time)
         
-        for i in range(steps):
-            t = start_time + timedelta(minutes=i*step_minutes)
-            # astropy Time handles timezone-aware datetimes correctly
-            jd_list.append(Time(t).jd)
+        epochs = {
+            'start': t_start.datetime.strftime('%Y-%m-%d %H:%M'),
+            'stop': t_end.datetime.strftime('%Y-%m-%d %H:%M'),
+            'step': f"{step_minutes}m"
+        }
 
-        # Query Horizons with list of epochs
+        # Query Horizons with epochs dict
         try:
-            obj = Horizons(id=obj_name, location=location_code, epochs=jd_list, id_type='smallbody')
+            obj = Horizons(id=obj_name, location=location_code, epochs=epochs, id_type='smallbody')
             result = obj.ephemerides(closest_apparition=True)
         except Exception:
             try:
                 # Fallback 1: Search
-                obj = Horizons(id=obj_name, location=location_code, epochs=jd_list)
+                obj = Horizons(id=obj_name, location=location_code, epochs=epochs)
                 result = obj.ephemerides(closest_apparition=True)
             except Exception:
                 # Fallback 2: Regex
@@ -94,14 +96,14 @@ def get_horizons_ephemerides(obj_name, start_time, duration_minutes=240, step_mi
                 if match:
                     short_id = match.group(1)
                     try:
-                        obj = Horizons(id=short_id, location=location_code, epochs=jd_list, id_type='smallbody')
+                        obj = Horizons(id=short_id, location=location_code, epochs=epochs, id_type='smallbody')
                         result = obj.ephemerides(closest_apparition=True)
                     except Exception:
                         try:
-                            obj = Horizons(id=short_id, location=location_code, epochs=jd_list, id_type='designation')
+                            obj = Horizons(id=short_id, location=location_code, epochs=epochs, id_type='designation')
                             result = obj.ephemerides(closest_apparition=True)
                         except Exception:
-                            obj = Horizons(id=short_id, location=location_code, epochs=jd_list)
+                            obj = Horizons(id=short_id, location=location_code, epochs=epochs)
                             result = obj.ephemerides(closest_apparition=True)
                 else:
                     raise
@@ -132,14 +134,17 @@ def resolve_planet(obj_name, obs_time_str="2026-02-13 00:30:00", location_code='
 def get_planet_ephemerides(obj_name, start_time, duration_minutes=240, step_minutes=10, location_code='500'):
     """Queries JPL Horizons for planetary ephemerides."""
     try:
-        steps = int(duration_minutes / step_minutes) + 1
-        jd_list = []
+        t_start = Time(start_time)
+        end_time = start_time + timedelta(minutes=duration_minutes)
+        t_end = Time(end_time)
         
-        for i in range(steps):
-            t = start_time + timedelta(minutes=i*step_minutes)
-            jd_list.append(Time(t).jd)
+        epochs = {
+            'start': t_start.datetime.strftime('%Y-%m-%d %H:%M'),
+            'stop': t_end.datetime.strftime('%Y-%m-%d %H:%M'),
+            'step': f"{step_minutes}m"
+        }
 
-        obj = Horizons(id=obj_name, location=location_code, epochs=jd_list, id_type='majorbody')
+        obj = Horizons(id=obj_name, location=location_code, epochs=epochs, id_type='majorbody')
         result = obj.ephemerides()
 
         coords = [SkyCoord(ra=row['RA']*u.deg, dec=row['DEC']*u.deg, frame='icrs') for row in result]
