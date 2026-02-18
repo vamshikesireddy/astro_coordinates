@@ -83,14 +83,25 @@ def calculate_planning_info(sky_coord, location, start_time):
     try:
         cos_h = (math.sin(-0.01) - math.sin(lat_rad) * math.sin(dec_rad)) / (math.cos(lat_rad) * math.cos(dec_rad))
         
+        time_fmt = f"%m-%d %H:%M {tz_str}"
+
         if cos_h < -1:
             status = "Always Up (Circumpolar)"
-            rise_str = "---"
-            set_str = "---"
+            # For visualization, anchor to start_time to prevent graph skew
+            rise_time = start_time
+            set_time = start_time + timedelta(hours=24)
+            
+            return {
+                "Constellation": constellation,
+                "Transit": transit_time.strftime(time_fmt),
+                "Rise": "Always Up",
+                "Set": "Always Up",
+                "Status": status,
+                "_rise_datetime": rise_time,
+                "_set_datetime": set_time
+            }
         elif cos_h > 1:
             status = "Never Rises"
-            rise_str = "---"
-            set_str = "---"
         else:
             h_rad = math.acos(cos_h)
             h_hours = math.degrees(h_rad) / 15.0
@@ -98,8 +109,12 @@ def calculate_planning_info(sky_coord, location, start_time):
             rise_time = transit_time - timedelta(hours=h_hours)
             set_time = transit_time + timedelta(hours=h_hours)
             
-            # Format times
-            time_fmt = f"%m-%d %H:%M {tz_str}"
+            # If the event has already finished before the start time, show the next cycle
+            if set_time < start_time:
+                transit_time += timedelta(hours=24)
+                rise_time += timedelta(hours=24)
+                set_time += timedelta(hours=24)
+            
             return {
                 "Constellation": constellation,
                 "Transit": transit_time.strftime(time_fmt),
