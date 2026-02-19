@@ -23,6 +23,3 @@ unistellar_priority:
 - 2033 Basilea
 - 2001 FD58
 - 3260 Vizbor
-- name: 99942 Apophis
-  window_end: '2029-04-13'
-  window_start: '2026-01-01'
