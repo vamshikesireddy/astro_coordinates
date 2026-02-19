@@ -128,5 +128,61 @@ def scrape_unistellar_priority_comets():
         driver.quit()
 
 
+_ASTEROID_PATTERN = re.compile(
+    r'(?:'
+    r'\(\d+\)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|'  # (2033) Basilea, (3260) Vizbor — IAU parenthesized format
+    r'\d{5,}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|'   # 99942 Apophis, 101955 Bennu
+    r'\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|'  # 433 Eros, 16 Psyche, 2033 Basilea
+    r'\d{4}\s+[A-Z]{1,2}\d+|'                       # 2024 YR4, 1994 PC1
+    r'\d{4}\s+[A-Z]{2}\d*'                          # 2001 SN263, 2001 FD58
+    r')'
+)
+
+_PAREN_NUM_RE = re.compile(r'^\((\d+)\)\s+')
+
+
+def _normalize_asteroid_match(name):
+    """Convert IAU parenthesized format '(2033) Basilea' → '2033 Basilea'."""
+    return _PAREN_NUM_RE.sub(r'\1 ', name)
+
+
+def scrape_unistellar_priority_asteroids():
+    """Scrapes the Unistellar planetary defense missions page to extract active priority asteroid designations."""
+    url = "https://science.unistellar.com/planetary-defense/missions/"
+
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    system_driver_path = "/usr/bin/chromedriver"
+    if os.path.exists(system_driver_path):
+        service = Service(system_driver_path)
+    else:
+        service = Service(ChromeDriverManager().install())
+
+    driver = webdriver.Chrome(service=service, options=options)
+    try:
+        driver.get(url)
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        time.sleep(3)
+
+        # Collect text from headings and content sections (Divi theme structure)
+        elements = driver.find_elements(By.CSS_SELECTOR, "h1,h2,h3,h4,p,.et_pb_text_inner")
+        text = " ".join(re.sub(r'\s+', ' ', el.text) for el in elements if el.text.strip())
+
+        # Extract, normalize parenthesized numbers, and deduplicate
+        raw = _ASTEROID_PATTERN.findall(text)
+        found = list(dict.fromkeys(_normalize_asteroid_match(m) for m in raw))
+        return found
+    except Exception as e:
+        print(f"Failed to scrape Unistellar planetary defense page: {e}")
+        return []
+    finally:
+        driver.quit()
+
+
 if __name__ == "__main__":
     scrape_unistellar_table()

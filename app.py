@@ -37,7 +37,7 @@ except ImportError:
 # Import from local modules
 from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
 from backend.core import compute_trajectory, calculate_planning_info
-from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_comets
+from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_comets, scrape_unistellar_priority_asteroids
 
 # Suppress Astropy warnings about coordinate frame transformations (Geocentric vs Topocentric)
 warnings.filterwarnings("ignore", message=".*transforming other coordinates.*")
@@ -266,6 +266,115 @@ def get_unistellar_scraped_comets():
     """Fetches the current priority comet list from the Unistellar missions page (cached 24h)."""
     try:
         return scrape_unistellar_priority_comets()
+    except Exception:
+        return []
+
+
+ASTEROIDS_FILE = "asteroids.yaml"
+ASTEROID_PENDING_FILE = "asteroid_pending_requests.txt"
+
+ASTEROID_ALIASES = {
+    "Apophis": "99942 Apophis",
+    "Bennu": "101955 Bennu",
+    "Ryugu": "162173 Ryugu",
+}
+
+
+def _resolve_asteroid_alias(name):
+    return ASTEROID_ALIASES.get(name, name).upper()
+
+
+def _asteroid_priority_name(entry):
+    return entry["name"] if isinstance(entry, dict) else entry
+
+
+def _asteroid_jpl_id(name):
+    """Return the correct JPL Horizons ID for an asteroid name.
+    - Provisional designations (e.g. '2001 FD58', '2024 YR4') → use full string.
+    - Numbered named asteroids (e.g. '433 Eros') → use just the number.
+    """
+    import re as _re
+    if name and _re.match(r'^\d{4}\s+[A-Z]{1,2}\d', name):
+        return name  # Provisional: year + letter-number combo
+    if name and name[0].isdigit():
+        return name.split(' ')[0]  # Numbered: "433 Eros" → "433"
+    return name
+
+
+def load_asteroids_config():
+    if os.path.exists(ASTEROIDS_FILE):
+        with open(ASTEROIDS_FILE, "r") as f:
+            data = yaml.safe_load(f) or {}
+    else:
+        data = {}
+    data.setdefault("asteroids", [])
+    data.setdefault("unistellar_priority", [])
+    data.setdefault("priorities", {})
+    data.setdefault("cancelled", [])
+    return data
+
+
+def save_asteroids_config(config):
+    with open(ASTEROIDS_FILE, "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
+    token = st.secrets.get("GITHUB_TOKEN")
+    repo_name = st.secrets.get("GITHUB_REPO")
+    if token and repo_name and Github:
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            yaml_str = yaml.dump(config, default_flow_style=False)
+            try:
+                contents = repo.get_contents(ASTEROIDS_FILE)
+                repo.update_file(contents.path, "Update asteroids.yaml (Admin)", yaml_str, contents.sha)
+                st.toast("✅ asteroids.yaml pushed to GitHub")
+            except Exception:
+                repo.create_file(ASTEROIDS_FILE, "Create asteroids.yaml (Admin)", yaml_str)
+                st.toast("✅ asteroids.yaml created on GitHub")
+        except Exception as e:
+            st.error(f"GitHub Sync Error: {e}")
+
+
+@st.cache_data(ttl=3600, show_spinner="Calculating asteroid visibility...")
+def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
+    location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
+    utc_start = start_time.astimezone(pytz.utc)
+    obs_time_str = utc_start.strftime('%Y-%m-%d %H:%M:%S')
+    t_moon = Time(start_time)
+    try:
+        moon_loc_inner = get_moon(t_moon, location)
+        sun_loc_inner = get_sun(t_moon)
+        elongation = sun_loc_inner.separation(moon_loc_inner)
+        moon_illum_inner = float(0.5 * (1 - math.cos(elongation.rad))) * 100
+    except Exception:
+        moon_loc_inner = None
+        moon_illum_inner = 0
+    data = []
+    for asteroid_name in asteroid_tuple:
+        jpl_id = _asteroid_jpl_id(asteroid_name)
+        try:
+            _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
+            details = calculate_planning_info(sky_coord, location, start_time)
+            moon_sep = sky_coord.separation(moon_loc_inner).degree if moon_loc_inner else 0.0
+            row = {
+                "Name": asteroid_name,
+                "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
+                "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "Moon Sep (°)": round(moon_sep, 1),
+                "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+            }
+            row.update(details)
+            data.append(row)
+        except Exception:
+            continue
+    return pd.DataFrame(data)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_unistellar_scraped_asteroids():
+    """Fetches the current priority asteroid list from the Unistellar planetary defense page (cached 24h)."""
+    try:
+        return scrape_unistellar_priority_asteroids()
     except Exception:
         return []
 
@@ -758,6 +867,24 @@ elif target_mode == "Comet (JPL Horizons)":
                         save_comets_config(cfg)
                         st.rerun()
 
+                st.markdown("---")
+                st.markdown("### Remove Priority Target")
+                pri_names_c = [
+                    e["name"] if isinstance(e, dict) else e
+                    for e in cfg.get("unistellar_priority", [])
+                ]
+                if pri_names_c:
+                    rem_pri_c = st.selectbox("Select priority target to remove", pri_names_c, key="comet_rem_pri_sel")
+                    if st.button("Remove from Priority", key="btn_rem_cpri"):
+                        cfg["unistellar_priority"] = [
+                            e for e in cfg["unistellar_priority"]
+                            if (e["name"] if isinstance(e, dict) else e) != rem_pri_c
+                        ]
+                        save_comets_config(cfg)
+                        st.rerun()
+                else:
+                    st.caption("No priority targets set.")
+
     # Batch visibility table
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
         st.info("Set location in sidebar to see visibility summary for all comets.")
@@ -886,32 +1013,316 @@ elif target_mode == "Comet (JPL Horizons)":
             st.error(f"Could not resolve object: {e}")
 
 elif target_mode == "Asteroid (JPL Horizons)":
-    # Pre-defined list of popular asteroids
-    asteroid_targets = [
-        "1 Ceres",
-        "2 Pallas",
-        "3 Juno",
-        "4 Vesta",
-        "10 Hygiea",
-        "16 Psyche",
-        "433 Eros",
-        "704 Interamnia",
-        "Custom Asteroid..."
-    ]
-    
-    selected_target = st.selectbox("Select an Asteroid", asteroid_targets)
-    st.markdown("ℹ️ *Target not listed? Find the exact designation in the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html) and use 'Custom Asteroid...'*")
-    
+    asteroid_config = load_asteroids_config()
+    active_asteroids = [a for a in asteroid_config["asteroids"] if a not in asteroid_config.get("cancelled", [])]
+    priority_set = set(_asteroid_priority_name(e) for e in asteroid_config.get("unistellar_priority", []))
+    priority_windows = {
+        e["name"]: (e.get("window_start", ""), e.get("window_end", ""))
+        for e in asteroid_config.get("unistellar_priority", [])
+        if isinstance(e, dict) and "window_start" in e
+    }
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Auto-notification: once per session
+    if 'asteroid_priority_notified' not in st.session_state:
+        missing_priority = [n for n in priority_set if n not in asteroid_config["asteroids"]]
+        if missing_priority:
+            _send_github_notification(
+                "🚨 Auto-Alert: Missing Priority Asteroids",
+                "The following priority asteroids are missing from the asteroid list:\n\n"
+                + "\n".join(f"- {a}" for a in missing_priority)
+                + "\n\nPlease add them via the Admin Panel.\n\n_Auto-detected by Astro Planner_"
+            )
+        scraped = get_unistellar_scraped_asteroids()
+        st.session_state.asteroid_scraped_priority = scraped
+        if scraped:
+            priority_set_upper = {n.upper() for n in priority_set}
+            new_from_page = [a for a in scraped if _resolve_asteroid_alias(a) not in priority_set_upper]
+            if new_from_page:
+                existing_pending = []
+                if os.path.exists(ASTEROID_PENDING_FILE):
+                    with open(ASTEROID_PENDING_FILE, "r") as f:
+                        existing_pending = [l.strip() for l in f if l.strip()]
+                existing_names = {l.split('|')[0] for l in existing_pending}
+                with open(ASTEROID_PENDING_FILE, "a") as f:
+                    for a in new_from_page:
+                        if a not in existing_names:
+                            f.write(f"{a}|Add|Auto-detected from Unistellar planetary defense page\n")
+                _send_github_notification(
+                    "🔍 Auto-Detected: New Unistellar Priority Asteroids",
+                    "The following asteroids were found on the Unistellar planetary defense missions page "
+                    "but are not in the current priority list:\n\n"
+                    + "\n".join(f"- {a}" for a in new_from_page)
+                    + "\n\nPlease review and update `asteroids.yaml` if needed.\n\n"
+                    "_Auto-detected by Astro Planner (daily scrape)_"
+                )
+        st.session_state.asteroid_priority_notified = True
+
+    # User: request an asteroid addition
+    with st.expander("➕ Request an Asteroid Addition"):
+        st.caption("Is an asteroid missing from the list? Submit a request — it will be verified with JPL Horizons before admin review.")
+        req_asteroid = st.text_input("Asteroid designation (e.g., 99942 Apophis, 433 Eros)", key="req_asteroid_name")
+        req_a_note = st.text_area("Optional note / reason", key="req_asteroid_note", height=60)
+        if st.button("Submit Asteroid Request", key="btn_asteroid_req"):
+            if req_asteroid:
+                jpl_id = _asteroid_jpl_id(req_asteroid)
+                with st.spinner(f"Verifying '{jpl_id}' with JPL Horizons..."):
+                    try:
+                        utc_check = start_time.astimezone(pytz.utc)
+                        resolve_horizons(jpl_id, obs_time_str=utc_check.strftime('%Y-%m-%d %H:%M:%S'))
+                        with open(ASTEROID_PENDING_FILE, "a") as f:
+                            f.write(f"{req_asteroid}|Add|{req_a_note or 'No note'}\n")
+                        _send_github_notification(
+                            f"🪨 Asteroid Add Request: {req_asteroid}",
+                            f"**Asteroid:** {req_asteroid}\n**JPL ID:** {jpl_id}\n**Status:** ✅ JPL Verified\n**Note:** {req_a_note or 'None'}\n\n_Submitted via Astro Planner_"
+                        )
+                        st.success(f"✅ '{req_asteroid}' verified and request submitted for admin review.")
+                    except Exception as e:
+                        st.error(f"❌ JPL could not resolve '{jpl_id}': {e}")
+
+    # Priority asteroids expander
+    if priority_set:
+        with st.expander("⭐ Priority Asteroids (Unistellar Planetary Defense)"):
+            st.caption(
+                "Top-priority targets from Unistellar Planetary Defense. "
+                "🔄 *Missions page is checked daily for new additions.*"
+            )
+            scraped_a = st.session_state.get("asteroid_scraped_priority", [])
+            if scraped_a:
+                priority_set_upper = {n.upper() for n in priority_set}
+                new_from_page = [a for a in scraped_a if _resolve_asteroid_alias(a) not in priority_set_upper]
+                if new_from_page:
+                    st.info(
+                        f"🔍 **{len(new_from_page)} new asteroid(s)** detected on the Unistellar missions page "
+                        f"not yet in the priority list: {', '.join(new_from_page)}. Admin has been notified."
+                    )
+            pri_rows = []
+            for entry in asteroid_config.get("unistellar_priority", []):
+                a_name = _asteroid_priority_name(entry)
+                w_start = entry.get("window_start", "") if isinstance(entry, dict) else ""
+                w_end = entry.get("window_end", "") if isinstance(entry, dict) else ""
+                window_str = ""
+                if w_start and w_end:
+                    window_str = f"{w_start} → {w_end}"
+                    if w_start <= today_str <= w_end:
+                        window_str = f"✅ ACTIVE: {window_str}"
+                pri_rows.append({"Asteroid": a_name, "Observation Window": window_str})
+            st.dataframe(pd.DataFrame(pri_rows), hide_index=True, width="stretch")
+
+    # Admin panel (sidebar)
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("🪨 Asteroid Admin"):
+            admin_pass_a = st.text_input("Admin Password", type="password", key="asteroid_admin_pass")
+            correct_pass_a = st.secrets.get("ADMIN_PASSWORD")
+            if correct_pass_a and admin_pass_a == correct_pass_a:
+                st.markdown("### Pending Requests")
+                if os.path.exists(ASTEROID_PENDING_FILE):
+                    with open(ASTEROID_PENDING_FILE, "r") as f:
+                        a_lines = [l.strip() for l in f if l.strip()]
+                else:
+                    a_lines = []
+                if not a_lines:
+                    st.info("No pending requests.")
+                for i, line in enumerate(a_lines):
+                    parts = line.split('|')
+                    if len(parts) < 2:
+                        continue
+                    a_name, a_action = parts[0], parts[1]
+                    a_note = parts[2] if len(parts) > 2 else ""
+                    st.text(f"{a_name} ({a_action})")
+                    if a_note and a_note != "No note":
+                        st.caption(a_note)
+                    aa1, aa2 = st.columns(2)
+                    if aa1.button("✅ Accept", key=f"aacc_{i}_{a_name}"):
+                        cfg = load_asteroids_config()
+                        if a_action == "Add" and a_name not in cfg["asteroids"]:
+                            cfg["asteroids"].append(a_name)
+                        if "Auto-detected from Unistellar planetary defense page" in a_note:
+                            priority_names = [_asteroid_priority_name(e) for e in cfg["unistellar_priority"]]
+                            if a_name not in priority_names:
+                                cfg["unistellar_priority"].append(a_name)
+                        save_asteroids_config(cfg)
+                        remaining = [l for l in a_lines if l != line]
+                        with open(ASTEROID_PENDING_FILE, "w") as f:
+                            f.write("\n".join(remaining) + "\n")
+                        st.rerun()
+                    if aa2.button("❌ Reject", key=f"arej_{i}_{a_name}"):
+                        remaining = [l for l in a_lines if l != line]
+                        with open(ASTEROID_PENDING_FILE, "w") as f:
+                            f.write("\n".join(remaining) + "\n")
+                        st.rerun()
+
+                st.markdown("---")
+                st.markdown("### Priority Overrides")
+                cfg = load_asteroids_config()
+                if cfg.get("priorities"):
+                    for a_n, a_p in list(cfg["priorities"].items()):
+                        pa1, pa2 = st.columns([3, 1])
+                        pa1.text(f"{a_n}: {a_p}")
+                        if pa2.button("🗑️", key=f"del_apri_{a_n}"):
+                            del cfg["priorities"][a_n]
+                            save_asteroids_config(cfg)
+                            st.rerun()
+                nap_name = st.text_input("Asteroid Name", key="new_apri_name")
+                nap_val = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH", "URGENT"], key="new_apri_val")
+                if st.button("Set Priority", key="btn_set_apri"):
+                    if nap_name:
+                        cfg["priorities"][nap_name] = nap_val
+                        save_asteroids_config(cfg)
+                        st.success(f"Set {nap_name} to {nap_val}")
+
+                st.markdown("---")
+                st.markdown("### Remove from List")
+                if cfg.get("asteroids"):
+                    arem = st.selectbox("Select to remove", cfg["asteroids"], key="asteroid_rem_sel")
+                    if st.button("Remove", key="btn_rem_asteroid"):
+                        cfg["asteroids"] = [a for a in cfg["asteroids"] if a != arem]
+                        save_asteroids_config(cfg)
+                        st.rerun()
+
+                st.markdown("---")
+                st.markdown("### Remove Priority Target")
+                pri_names_a = [_asteroid_priority_name(e) for e in cfg.get("unistellar_priority", [])]
+                if pri_names_a:
+                    rem_pri_a = st.selectbox("Select priority target to remove", pri_names_a, key="asteroid_rem_pri_sel")
+                    if st.button("Remove from Priority", key="btn_rem_apri"):
+                        cfg["unistellar_priority"] = [
+                            e for e in cfg["unistellar_priority"]
+                            if _asteroid_priority_name(e) != rem_pri_a
+                        ]
+                        save_asteroids_config(cfg)
+                        st.rerun()
+                else:
+                    st.caption("No priority targets set.")
+
+    # Batch visibility table
+    if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+        st.info("Set location in sidebar to see visibility summary for all asteroids.")
+    elif active_asteroids:
+        df_asteroids = get_asteroid_summary(lat, lon, start_time, tuple(active_asteroids))
+
+        if not df_asteroids.empty:
+            df_asteroids["Priority"] = df_asteroids["Name"].apply(
+                lambda n: asteroid_config["priorities"].get(n,
+                    "⭐ PRIORITY" if n in priority_set else "")
+            )
+
+            def _window_status(name):
+                if name not in priority_windows:
+                    return ""
+                w_start, w_end = priority_windows[name]
+                if w_start and w_end:
+                    label = f"{w_start} → {w_end}"
+                    return f"✅ ACTIVE: {label}" if w_start <= today_str <= w_end else f"⏳ {label}"
+                return ""
+            df_asteroids["Window"] = df_asteroids["Name"].apply(_window_status)
+
+            location_a = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
+            is_obs_list, reason_list = [], []
+            for _, row in df_asteroids.iterrows():
+                try:
+                    sc = SkyCoord(row['RA'], row['Dec'], frame='icrs')
+                    check_times = [
+                        start_time,
+                        start_time + timedelta(minutes=duration / 2),
+                        start_time + timedelta(minutes=duration)
+                    ]
+                    moon_locs_chk = []
+                    if moon_loc:
+                        try:
+                            moon_locs_chk = [get_moon(Time(t), location_a) for t in check_times]
+                        except Exception:
+                            moon_locs_chk = [moon_loc] * 3
+                    obs, reason = False, "Not visible during window"
+                    if str(row.get('Status', '')) == "Never Rises":
+                        reason = "Never Rises"
+                    else:
+                        for i_t, t_chk in enumerate(check_times):
+                            aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_a))
+                            if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                                sep_ok = (not moon_locs_chk) or (sc.separation(moon_locs_chk[i_t]).degree >= min_moon_sep)
+                                if sep_ok:
+                                    obs, reason = True, ""
+                                    break
+                    is_obs_list.append(obs)
+                    reason_list.append(reason)
+                except Exception:
+                    is_obs_list.append(False)
+                    reason_list.append("Parse Error")
+
+            df_asteroids["is_observable"] = is_obs_list
+            df_asteroids["filter_reason"] = reason_list
+
+            df_obs_a = df_asteroids[df_asteroids["is_observable"]].copy()
+            df_filt_a = df_asteroids[~df_asteroids["is_observable"]].copy()
+
+            display_cols_a = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
+                              "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
+
+            def display_asteroid_table(df_in):
+                show = [c for c in display_cols_a if c in df_in.columns]
+
+                def hi_asteroid(row):
+                    val = str(row.get("Priority", "")).upper()
+                    if "URGENT" in val:
+                        return ["background-color: #ef5350; color: white; font-weight: bold"] * len(row)
+                    if "HIGH" in val:
+                        return ["background-color: #ffb74d; color: black; font-weight: bold"] * len(row)
+                    if "MEDIUM" in val:
+                        return ["background-color: #fff59d; color: black"] * len(row)
+                    if "LOW" in val:
+                        return ["background-color: #c8e6c9; color: black"] * len(row)
+                    if "PRIORITY" in val:
+                        return ["background-color: #e3f2fd; color: #0d47a1; font-weight: bold"] * len(row)
+                    return [""] * len(row)
+
+                st.dataframe(df_in[show].style.apply(hi_asteroid, axis=1), hide_index=True, width="stretch")
+
+            tab_obs_a, tab_filt_a = st.tabs([
+                f"🎯 Observable ({len(df_obs_a)})",
+                f"👻 Unobservable ({len(df_filt_a)})"
+            ])
+
+            with tab_obs_a:
+                st.subheader("Observable Asteroids")
+                plot_visibility_timeline(df_obs_a)
+                st.markdown(
+                    "**Legend:** <span style='background-color: #e3f2fd; color: #0d47a1; "
+                    "padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⭐ PRIORITY</span>"
+                    " = Unistellar Planetary Defense priority target",
+                    unsafe_allow_html=True
+                )
+                display_asteroid_table(df_obs_a)
+
+            with tab_filt_a:
+                st.caption("Asteroids not meeting your filters within the observation window.")
+                if not df_filt_a.empty:
+                    filt_show = [c for c in ["Name", "filter_reason", "Rise", "Transit", "Set", "RA", "Dec", "Status"] if c in df_filt_a.columns]
+                    st.dataframe(df_filt_a[filt_show], hide_index=True, width="stretch")
+
+            st.download_button(
+                "Download Asteroid Data (CSV)",
+                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                file_name="asteroids_visibility.csv",
+                mime="text/csv"
+            )
+
+    # Select asteroid for trajectory
+    st.markdown("---")
+    st.subheader("Select Asteroid for Trajectory")
+    asteroid_options = active_asteroids + ["Custom Asteroid..."]
+    selected_target = st.selectbox("Select an Asteroid", asteroid_options, key="asteroid_traj_sel")
+    st.markdown("ℹ️ *Target not listed? Use 'Custom Asteroid...' or submit a request above. Find the exact designation in the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html).*")
+
     if selected_target == "Custom Asteroid...":
-        obj_name = st.text_input("Enter Asteroid Name (e.g., Eros, Psyche)", value="")
+        obj_name = st.text_input("Enter Asteroid Name (e.g., Eros, Psyche, 2024 YR4)", value="", key="asteroid_custom_input")
     else:
-        # Extract just the ID (number) from strings like "4 Vesta"
-        obj_name = selected_target.split(' ')[0]
+        obj_name = _asteroid_jpl_id(selected_target)
 
     if obj_name:
         try:
             with st.spinner(f"Querying JPL Horizons for {obj_name}..."):
-                # Pass UTC time for ephemeris lookup
                 utc_start = start_time.astimezone(pytz.utc)
                 name, sky_coord = resolve_horizons(obj_name, obs_time_str=utc_start.strftime('%Y-%m-%d %H:%M:%S'))
             st.success(f"✅ Resolved: **{name}**")

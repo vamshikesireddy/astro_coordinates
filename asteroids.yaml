@@ -1,0 +1,31 @@
+asteroids:
+- 1 Ceres
+- 2 Pallas
+- 3 Juno
+- 4 Vesta
+- 10 Hygiea
+- 16 Psyche
+- 433 Eros
+- 704 Interamnia
+- 1796 Riga
+- 2033 Basilea
+- 2001 FD58
+- 3200 Phaethon
+- 3260 Vizbor
+- 99942 Apophis
+- 101955 Bennu
+- 2001 SN263
+
+unistellar_priority:
+- 433 Eros
+- 16 Psyche
+- 1796 Riga
+- 2033 Basilea
+- 2001 FD58
+- 3260 Vizbor
+- name: 99942 Apophis
+  window_start: "2026-01-01"
+  window_end: "2029-04-13"
+
+priorities: {}
+cancelled: []

@@ -12,6 +12,7 @@ env/
 *.csv
 pending_requests.txt
 comet_pending_requests.txt
+asteroid_pending_requests.txt
 
 # OS generated files
 .DS_Store
