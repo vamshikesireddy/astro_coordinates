@@ -11,6 +11,7 @@ env/
 # Local data files (if you download them)
 *.csv
 pending_requests.txt
+comet_pending_requests.txt
 
 # OS generated files
 .DS_Store
@@ -18,4 +19,7 @@ Thumbs.db
 *.pyo
 *.pyd
 
-future_update.md
+test/*
+
+# Claude Code local state (not needed in repo)
+.claude/

@@ -37,7 +37,7 @@ except ImportError:
 # Import from local modules
 from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
 from backend.core import compute_trajectory, calculate_planning_info
-from backend.scrape import scrape_unistellar_table
+from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_comets
 
 # Suppress Astropy warnings about coordinate frame transformations (Geocentric vs Topocentric)
 warnings.filterwarnings("ignore", message=".*transforming other coordinates.*")
@@ -161,6 +161,114 @@ def plot_visibility_timeline(df):
             st.altair_chart(chart, use_container_width=True)
     else:
         st.altair_chart(chart, use_container_width=True)
+
+
+def _send_github_notification(title, body):
+    """Creates a GitHub Issue to notify admin. Reusable across all sections."""
+    token = st.secrets.get("GITHUB_TOKEN")
+    repo_name = st.secrets.get("GITHUB_REPO")
+    if token and repo_name and Github:
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            me = g.get_user()
+            repo.create_issue(title=title, body=body, assignee=me.login)
+        except Exception as e:
+            print(f"Failed to send notification: {e}")
+
+
+COMETS_FILE = "comets.yaml"
+COMET_PENDING_FILE = "comet_pending_requests.txt"
+
+# Aliases for comets that appear under alternate designations on external pages
+COMET_ALIASES = {
+    "3I/ATLAS": "C/2025 N1 (ATLAS)",
+}
+
+
+def _resolve_comet_alias(name):
+    """Returns canonical name (from COMET_ALIASES) and uppercases for comparison."""
+    return COMET_ALIASES.get(name, name).upper()
+
+
+def load_comets_config():
+    if os.path.exists(COMETS_FILE):
+        with open(COMETS_FILE, "r") as f:
+            data = yaml.safe_load(f) or {}
+    else:
+        data = {}
+    data.setdefault("comets", [])
+    data.setdefault("unistellar_priority", [])
+    data.setdefault("priorities", {})
+    data.setdefault("cancelled", [])
+    return data
+
+
+def save_comets_config(config):
+    with open(COMETS_FILE, "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
+    token = st.secrets.get("GITHUB_TOKEN")
+    repo_name = st.secrets.get("GITHUB_REPO")
+    if token and repo_name and Github:
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            yaml_str = yaml.dump(config, default_flow_style=False)
+            try:
+                contents = repo.get_contents(COMETS_FILE)
+                repo.update_file(contents.path, "Update comets.yaml (Admin)", yaml_str, contents.sha)
+                st.toast("✅ comets.yaml pushed to GitHub")
+            except Exception:
+                repo.create_file(COMETS_FILE, "Create comets.yaml (Admin)", yaml_str)
+                st.toast("✅ comets.yaml created on GitHub")
+        except Exception as e:
+            st.error(f"GitHub Sync Error: {e}")
+
+
+@st.cache_data(ttl=3600, show_spinner="Calculating comet visibility...")
+def get_comet_summary(lat, lon, start_time, comet_tuple):
+    """Batch-calculate rise/set/moon info for all comets in the list."""
+    location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
+    utc_start = start_time.astimezone(pytz.utc)
+    obs_time_str = utc_start.strftime('%Y-%m-%d %H:%M:%S')
+    t_moon = Time(start_time)
+    try:
+        moon_loc_inner = get_moon(t_moon, location)
+        sun_loc_inner = get_sun(t_moon)
+        elongation = sun_loc_inner.separation(moon_loc_inner)
+        moon_illum_inner = float(0.5 * (1 - math.cos(elongation.rad))) * 100
+    except Exception:
+        moon_loc_inner = None
+        moon_illum_inner = 0
+    data = []
+    for comet_name in comet_tuple:
+        jpl_id = comet_name.split('(')[0].strip()
+        try:
+            _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
+            details = calculate_planning_info(sky_coord, location, start_time)
+            moon_sep = sky_coord.separation(moon_loc_inner).degree if moon_loc_inner else 0.0
+            row = {
+                "Name": comet_name,
+                "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
+                "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "Moon Sep (°)": round(moon_sep, 1),
+                "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+            }
+            row.update(details)
+            data.append(row)
+        except Exception:
+            continue
+    return pd.DataFrame(data)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_unistellar_scraped_comets():
+    """Fetches the current priority comet list from the Unistellar missions page (cached 24h)."""
+    try:
+        return scrape_unistellar_priority_comets()
+    except Exception:
+        return []
+
 
 # --- Hide Streamlit Branding & Toolbar ---
 hide_st_style = """
@@ -494,35 +602,276 @@ elif target_mode == "Planet (JPL Horizons)":
             st.error(f"Could not resolve object: {e}")
 
 elif target_mode == "Comet (JPL Horizons)":
-    # Pre-defined list of popular/bright comets
-    comet_targets = [
-        "235P/LINEAR",
-        "24P/Schaumasse",
-        "29P/Schwassmann-Wachmann 1",
-        "3D/Biela",
-        "88P/Howell",
-        "C/2022 N2 (PANSTARRS)",
-        "C/2022 QE78 (ATLAS)",
-        "C/2023 R1 (PANSTARRS)",
-        "C/2024 E1 (Wierzchos)",
-        "C/2024 J3 (ATLAS)",
-        "C/2024 T5 (ATLAS)",
-        "C/2025 A6 (Lemmon)",
-        "C/2025 J1 (Borisov)",
-        "C/2025 L1 (ATLAS)",
-        "C/2025 N1 (ATLAS)",
-        "C/2025 Q3 (ATLAS)",
-        "C/2025 R3 (PANSTARRS)",
-        "C/2026 A1 (MAPS)",
-        "P/2010 H2 (Vales)",
-        "Custom Comet..."
-    ]
-    
-    selected_target = st.selectbox("Select a Comet", comet_targets)
-    st.markdown("ℹ️ *Target not listed? Find the exact designation in the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html) and use 'Custom Comet...'*")
-    
+    comet_config = load_comets_config()
+    active_comets = [c for c in comet_config["comets"] if c not in comet_config.get("cancelled", [])]
+    priority_set = set(comet_config.get("unistellar_priority", []))
+
+    # Auto-notification: alert admin if any priority comet is missing from list, and check missions page (once per session)
+    if 'comet_priority_notified' not in st.session_state:
+        # 1. Static check: priority comets not in active comet list
+        missing_priority = [c for c in comet_config.get("unistellar_priority", []) if c not in comet_config["comets"]]
+        if missing_priority:
+            _send_github_notification(
+                "🚨 Auto-Alert: Missing Priority Comets",
+                "The following priority comets are missing from the comet list:\n\n"
+                + "\n".join(f"- {c}" for c in missing_priority)
+                + "\n\nPlease add them via the Admin Panel.\n\n_Auto-detected by Astro Planner_"
+            )
+
+        # 2. Semi-automatic: scrape Unistellar missions page and notify if new comets detected
+        scraped = get_unistellar_scraped_comets()
+        st.session_state.comet_scraped_priority = scraped
+        if scraped:
+            priority_set_upper = {c.upper() for c in priority_set}
+            new_from_page = [c for c in scraped if _resolve_comet_alias(c) not in priority_set_upper]
+            if new_from_page:
+                # Write to pending file so it shows in the admin panel
+                existing_pending = []
+                if os.path.exists(COMET_PENDING_FILE):
+                    with open(COMET_PENDING_FILE, "r") as f:
+                        existing_pending = [l.strip() for l in f if l.strip()]
+                existing_names = {l.split('|')[0] for l in existing_pending}
+                with open(COMET_PENDING_FILE, "a") as f:
+                    for c in new_from_page:
+                        if c not in existing_names:
+                            f.write(f"{c}|Add|Auto-detected from Unistellar missions page\n")
+                _send_github_notification(
+                    "🔍 Auto-Detected: New Unistellar Priority Comets",
+                    "The following comets were found on the Unistellar missions page "
+                    "but are not in the current priority list:\n\n"
+                    + "\n".join(f"- {c}" for c in new_from_page)
+                    + "\n\nPlease review and update `comets.yaml` if needed.\n\n"
+                    "_Auto-detected by Astro Planner (daily scrape)_"
+                )
+
+        st.session_state.comet_priority_notified = True
+
+    # User: request a comet addition
+    with st.expander("➕ Request a Comet Addition"):
+        st.caption("Is a comet missing from the list? Submit a request — it will be verified with JPL Horizons before admin review.")
+        req_comet = st.text_input("Comet designation (e.g., C/2025 X1 or 29P)", key="req_comet_name")
+        req_note = st.text_area("Optional note / reason", key="req_comet_note", height=60)
+        if st.button("Submit Comet Request", key="btn_comet_req"):
+            if req_comet:
+                jpl_id = req_comet.split('(')[0].strip()
+                with st.spinner(f"Verifying '{jpl_id}' with JPL Horizons..."):
+                    try:
+                        utc_check = start_time.astimezone(pytz.utc)
+                        resolve_horizons(jpl_id, obs_time_str=utc_check.strftime('%Y-%m-%d %H:%M:%S'))
+                        with open(COMET_PENDING_FILE, "a") as f:
+                            f.write(f"{req_comet}|Add|{req_note or 'No note'}\n")
+                        _send_github_notification(
+                            f"☄️ Comet Add Request: {req_comet}",
+                            f"**Comet:** {req_comet}\n**JPL ID:** {jpl_id}\n**Status:** ✅ JPL Verified\n**Note:** {req_note or 'None'}\n\n_Submitted via Astro Planner_"
+                        )
+                        st.success(f"✅ '{req_comet}' verified and request submitted for admin review.")
+                    except Exception as e:
+                        st.error(f"❌ JPL could not resolve '{jpl_id}': {e}")
+
+    # Display active Unistellar priority targets
+    if priority_set:
+        with st.expander("⭐ Priority Comets"):
+            st.caption(
+                "Top-priority targets from Unistellar Citizen Science. "
+                "🔄 *Missions page is checked daily for new additions.*"
+            )
+            scraped = st.session_state.get("comet_scraped_priority", [])
+            if scraped:
+                priority_set_upper = {c.upper() for c in priority_set}
+                new_from_page = [c for c in scraped if _resolve_comet_alias(c) not in priority_set_upper]
+                if new_from_page:
+                    st.info(
+                        f"🔍 **{len(new_from_page)} new comet(s)** detected on the Unistellar missions page "
+                        f"not yet in the priority list: {', '.join(new_from_page)}. Admin has been notified."
+                    )
+            pri_df = pd.DataFrame({"Comet": sorted(priority_set)})
+            st.dataframe(pri_df, hide_index=True, width="stretch")
+
+    # Admin panel (sidebar)
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("☄️ Comet Admin"):
+            admin_pass_comet = st.text_input("Admin Password", type="password", key="comet_admin_pass")
+            correct_pass_comet = st.secrets.get("ADMIN_PASSWORD")
+            if correct_pass_comet and admin_pass_comet == correct_pass_comet:
+                st.markdown("### Pending Requests")
+                if os.path.exists(COMET_PENDING_FILE):
+                    with open(COMET_PENDING_FILE, "r") as f:
+                        c_lines = [l.strip() for l in f if l.strip()]
+                else:
+                    c_lines = []
+                if not c_lines:
+                    st.info("No pending requests.")
+                for i, line in enumerate(c_lines):
+                    parts = line.split('|')
+                    if len(parts) < 2:
+                        continue
+                    c_name, c_action = parts[0], parts[1]
+                    c_note = parts[2] if len(parts) > 2 else ""
+                    st.text(f"{c_name} ({c_action})")
+                    if c_note and c_note != "No note":
+                        st.caption(c_note)
+                    ca1, ca2 = st.columns(2)
+                    if ca1.button("✅ Accept", key=f"cacc_{i}_{c_name}"):
+                        cfg = load_comets_config()
+                        if c_action == "Add" and c_name not in cfg["comets"]:
+                            cfg["comets"].append(c_name)
+                        # Auto-detected comets from the missions page scrape also go into unistellar_priority
+                        if "Auto-detected from Unistellar missions page" in c_note and c_name not in cfg["unistellar_priority"]:
+                            cfg["unistellar_priority"].append(c_name)
+                        save_comets_config(cfg)
+                        remaining = [l for l in c_lines if l != line]
+                        with open(COMET_PENDING_FILE, "w") as f:
+                            f.write("\n".join(remaining) + "\n")
+                        st.rerun()
+                    if ca2.button("❌ Reject", key=f"crej_{i}_{c_name}"):
+                        remaining = [l for l in c_lines if l != line]
+                        with open(COMET_PENDING_FILE, "w") as f:
+                            f.write("\n".join(remaining) + "\n")
+                        st.rerun()
+
+                st.markdown("---")
+                st.markdown("### Priority Overrides")
+                cfg = load_comets_config()
+                if cfg.get("priorities"):
+                    for c_n, c_p in list(cfg["priorities"].items()):
+                        pc1, pc2 = st.columns([3, 1])
+                        pc1.text(f"{c_n}: {c_p}")
+                        if pc2.button("🗑️", key=f"del_cpri_{c_n}"):
+                            del cfg["priorities"][c_n]
+                            save_comets_config(cfg)
+                            st.rerun()
+                np_name = st.text_input("Comet Name", key="new_cpri_name")
+                np_val = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH", "URGENT"], key="new_cpri_val")
+                if st.button("Set Priority", key="btn_set_cpri"):
+                    if np_name:
+                        cfg["priorities"][np_name] = np_val
+                        save_comets_config(cfg)
+                        st.success(f"Set {np_name} to {np_val}")
+
+                st.markdown("---")
+                st.markdown("### Remove from List")
+                if cfg.get("comets"):
+                    rem = st.selectbox("Select to remove", cfg["comets"], key="comet_rem_sel")
+                    if st.button("Remove", key="btn_rem_comet"):
+                        cfg["comets"] = [c for c in cfg["comets"] if c != rem]
+                        save_comets_config(cfg)
+                        st.rerun()
+
+    # Batch visibility table
+    if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+        st.info("Set location in sidebar to see visibility summary for all comets.")
+    elif active_comets:
+        df_comets = get_comet_summary(lat, lon, start_time, tuple(active_comets))
+
+        if not df_comets.empty:
+            # Priority column: admin override > unistellar priority > empty
+            df_comets["Priority"] = df_comets["Name"].apply(
+                lambda n: comet_config["priorities"].get(n,
+                    "⭐ PRIORITY" if n in priority_set else "")
+            )
+
+            # Observability check (same pattern as planet section)
+            location_c = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
+            is_obs_list, reason_list = [], []
+            for _, row in df_comets.iterrows():
+                try:
+                    sc = SkyCoord(row['RA'], row['Dec'], frame='icrs')
+                    check_times = [
+                        start_time,
+                        start_time + timedelta(minutes=duration / 2),
+                        start_time + timedelta(minutes=duration)
+                    ]
+                    moon_locs_chk = []
+                    if moon_loc:
+                        try:
+                            moon_locs_chk = [get_moon(Time(t), location_c) for t in check_times]
+                        except Exception:
+                            moon_locs_chk = [moon_loc] * 3
+
+                    obs, reason = False, "Not in window (Alt/Az/Moon)"
+                    if str(row.get('Status', '')) == "Never Rises":
+                        reason = "Never Rises"
+                    else:
+                        for i, t_chk in enumerate(check_times):
+                            aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_c))
+                            if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                                sep_ok = (not moon_locs_chk) or (sc.separation(moon_locs_chk[i]).degree >= min_moon_sep)
+                                if sep_ok:
+                                    obs, reason = True, ""
+                                    break
+                    is_obs_list.append(obs)
+                    reason_list.append(reason)
+                except Exception:
+                    is_obs_list.append(False)
+                    reason_list.append("Parse Error")
+
+            df_comets["is_observable"] = is_obs_list
+            df_comets["filter_reason"] = reason_list
+
+            df_obs_c = df_comets[df_comets["is_observable"]].copy()
+            df_filt_c = df_comets[~df_comets["is_observable"]].copy()
+
+            display_cols_c = ["Name", "Priority", "Constellation", "Rise", "Transit", "Set",
+                              "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
+
+            def display_comet_table(df_in):
+                show = [c for c in display_cols_c if c in df_in.columns]
+
+                def hi_comet(row):
+                    val = str(row.get("Priority", "")).upper()
+                    if "URGENT" in val:
+                        return ["background-color: #ef5350; color: white; font-weight: bold"] * len(row)
+                    if "HIGH" in val:
+                        return ["background-color: #ffb74d; color: black; font-weight: bold"] * len(row)
+                    if "MEDIUM" in val:
+                        return ["background-color: #fff59d; color: black"] * len(row)
+                    if "LOW" in val:
+                        return ["background-color: #c8e6c9; color: black"] * len(row)
+                    if "PRIORITY" in val:
+                        return ["background-color: #e3f2fd; color: #0d47a1; font-weight: bold"] * len(row)
+                    return [""] * len(row)
+
+                st.dataframe(df_in[show].style.apply(hi_comet, axis=1), hide_index=True, width="stretch")
+
+            tab_obs_c, tab_filt_c = st.tabs([
+                f"🎯 Observable ({len(df_obs_c)})",
+                f"👻 Unobservable ({len(df_filt_c)})"
+            ])
+
+            with tab_obs_c:
+                st.subheader("Observable Comets")
+                plot_visibility_timeline(df_obs_c)
+                st.markdown(
+                    "**Legend:** <span style='background-color: #e3f2fd; color: #0d47a1; "
+                    "padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⭐ PRIORITY</span>"
+                    " = Unistellar Citizen Science priority target",
+                    unsafe_allow_html=True
+                )
+                display_comet_table(df_obs_c)
+
+            with tab_filt_c:
+                st.caption("Comets not meeting your filters within the observation window.")
+                if not df_filt_c.empty:
+                    filt_show = [c for c in ["Name", "filter_reason", "Rise", "Transit", "Set", "Status"] if c in df_filt_c.columns]
+                    st.dataframe(df_filt_c[filt_show], hide_index=True, width="stretch")
+
+            st.download_button(
+                "Download Comet Data (CSV)",
+                data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                file_name="comets_visibility.csv",
+                mime="text/csv"
+            )
+
+    # Select comet for trajectory
+    st.markdown("---")
+    st.subheader("Select Comet for Trajectory")
+    comet_options = active_comets + ["Custom Comet..."]
+    selected_target = st.selectbox("Select a Comet", comet_options, key="comet_traj_sel")
+    st.markdown("ℹ️ *Target not listed? Use 'Custom Comet...' or submit a request above.*")
+
     if selected_target == "Custom Comet...":
-        obj_name = st.text_input("Enter Comet Name (e.g., C/2020 F3)", value="")
+        obj_name = st.text_input("Enter Comet Designation (e.g., C/2020 F3)", value="", key="comet_custom_input")
     else:
         obj_name = selected_target.split('(')[0].strip()
 
@@ -1006,9 +1355,12 @@ elif target_mode == "Cosmic Cataclysm":
             with tab_filt:
                 st.caption("Targets hidden because they do not meet criteria within the **Observation Window** (Start Time + Duration) selected in the sidebar.")
                 if not df_filt.empty:
-                    # Show reason and timing context so user knows if it rises later
+                    # Show reason, timing context, and coordinates
                     base_cols = ['Name', 'filter_reason', 'Rise', 'Transit', 'Set']
-                    # Only show columns that actually exist
+                    if ra_col:
+                        base_cols.append(ra_col)
+                    if dec_col:
+                        base_cols.append(dec_col)
                     show_cols = [c for c in base_cols if c in df_filt.columns]
                     if pri_col and pri_col in df_filt.columns:
                         show_cols.append(pri_col)
@@ -1162,9 +1514,19 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     m4.metric("Constellation", constellation)
     m5.metric("Moon Sep", moon_status_text)
 
+    # Visibility Window (Rise → Set Gantt) alongside trajectory
+    try:
+        planning_info = calculate_planning_info(sky_coord, location, start_time)
+        planning_info["Name"] = name
+        df_plan = pd.DataFrame([planning_info])
+        st.subheader("Visibility Window")
+        plot_visibility_timeline(df_plan)
+    except Exception:
+        pass
+
     # Chart
     st.subheader("Altitude vs Time")
-    
+
     chart_data = df.copy()
     chart_data["Local Time"] = pd.to_datetime(chart_data["Local Time"])
 
