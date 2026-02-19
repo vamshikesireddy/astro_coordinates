@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import time
 import os
@@ -81,6 +82,51 @@ def scrape_unistellar_table():
         return None
     finally:
         driver.quit()
+
+_COMET_PATTERN = re.compile(
+    r'(?:'
+    r'[CAPI]/\d{4}\s+[A-Z]\d*\s+\([^)]+\)|'       # C/2025 N1 (ATLAS), A/..., P/2010 H2 (Vales)
+    r'\d+[A-Za-z]/[A-Za-z][A-Za-z0-9\-]+(?:\s+\d+)?'  # 29P/Schwassmann-Wachmann 1, 3I/ATLAS, 235P/LINEAR
+    r')'
+)
+
+
+def scrape_unistellar_priority_comets():
+    """Scrapes the Unistellar comet missions page to extract active priority comet designations."""
+    url = "https://science.unistellar.com/comets/missions/"
+
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    system_driver_path = "/usr/bin/chromedriver"
+    if os.path.exists(system_driver_path):
+        service = Service(system_driver_path)
+    else:
+        service = Service(ChromeDriverManager().install())
+
+    driver = webdriver.Chrome(service=service, options=options)
+    try:
+        driver.get(url)
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        time.sleep(3)
+
+        # Collect text from headings and content sections (Divi theme structure)
+        elements = driver.find_elements(By.CSS_SELECTOR, "h1,h2,h3,h4,p,.et_pb_text_inner")
+        text = " ".join(re.sub(r'\s+', ' ', el.text) for el in elements if el.text.strip())
+
+        # Extract and deduplicate comet designations
+        found = list(dict.fromkeys(_COMET_PATTERN.findall(text)))
+        return found
+    except Exception as e:
+        print(f"Failed to scrape Unistellar missions page: {e}")
+        return []
+    finally:
+        driver.quit()
+
 
 if __name__ == "__main__":
     scrape_unistellar_table()
