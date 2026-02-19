@@ -555,6 +555,12 @@ hide_st_style = """
             <style>
             #MainMenu {visibility: visible;}
             footer {visibility: hidden;}
+            /* Hide GitHub source link from Streamlit Cloud header toolbar */
+            header[data-testid="stHeader"] a[href*="github.com"],
+            header[data-testid="stHeader"] a[aria-label*="GitHub"],
+            header[data-testid="stHeader"] a[title*="GitHub"] {
+                display: none !important;
+            }
             /* Reduce metric font size */
             [data-testid="stMetricValue"] {
                 font-size: 1.25rem !important;
