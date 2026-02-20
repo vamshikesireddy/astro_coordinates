@@ -352,16 +352,16 @@ def build_night_plan(df_obs, start_time, end_time, pri_col, dur_col):
     scheduled = []
 
     for _, row in df.iterrows():
-        dur_sec = 300  # default 5 minutes
+        dur_min = 5.0  # default 5 minutes
         if dur_col and dur_col in row.index:
             try:
                 v = float(row[dur_col])
                 if v > 0:
-                    dur_sec = int(v)
+                    dur_min = v
             except (ValueError, TypeError):
                 pass
 
-        obs_end = current_time + timedelta(seconds=dur_sec)
+        obs_end = current_time + timedelta(minutes=dur_min)
 
         if obs_end > end_time:
             break
@@ -492,7 +492,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
                 cells.append(Paragraph(url if url else '—', link_s))
             elif col == dur_col:
                 try:
-                    cells.append(Paragraph(f"{int(float(row.get(col, 0)))}s", cell_s))
+                    cells.append(Paragraph(f"{float(row.get(col, 0)):.1f} min", cell_s))
                 except Exception:
                     cells.append(Paragraph(str(row.get(col, '')), cell_s))
             else:
@@ -2751,6 +2751,10 @@ elif target_mode == "Cosmic Cataclysm":
             # Identify Duration column (keep numeric for correct sort; format applied via column_config)
             dur_col = next((c for c in df_display.columns if 'dur' in c.lower()), None)
 
+            # Convert Duration from seconds to minutes (keeps it numeric so sorting works)
+            if dur_col and dur_col in df_display.columns:
+                df_display[dur_col] = pd.to_numeric(df_display[dur_col], errors='coerce') / 60
+
             # Identify Link column (may be named "Link", "DeepLink", "Deep Link", etc.)
             link_col = next((c for c in df_display.columns if 'link' in c.lower()), None)
 
@@ -2821,12 +2825,12 @@ elif target_mode == "Cosmic Cataclysm":
                 # Configure columns
                 col_config = dict(_MOON_SEP_COL_CONFIG)
                 if link_col and link_col in final_table.columns:
-                    col_config[link_col] = st.column_config.LinkColumn(
-                        "Deep Link", display_text="Open App"
+                    col_config[link_col] = st.column_config.TextColumn(
+                        "Deep Link"
                     )
                 if dur_col and dur_col in final_table.columns:
                     col_config[dur_col] = st.column_config.NumberColumn(
-                        dur_col, format="%d sec"
+                        dur_col, format="%.1f min"
                     )
 
                 if pri_col and pri_col in final_table.columns:
@@ -3117,7 +3121,7 @@ elif target_mode == "Cosmic Cataclysm":
                                 }
                                 if dur_col and dur_col in _plan_display.columns:
                                     _plan_cfg[dur_col] = st.column_config.NumberColumn(
-                                        dur_col, format="%d sec"
+                                        dur_col, format="%.1f min"
                                     )
                                 # Show the raw URL as text (unistellar:// deeplinks are
                                 # not http so LinkColumn would hide the actual URL)
