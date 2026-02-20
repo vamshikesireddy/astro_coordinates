@@ -24,6 +24,7 @@ comets:
 - C/2025 R3 (PANSTARRS)
 - C/2026 A1 (MAPS)
 - P/2010 H2 (Vales)
+- C/2025 F2
 priorities: {}
 unistellar_priority:
 - C/2025 N1 (ATLAS)
