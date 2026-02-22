@@ -15,6 +15,8 @@ import json
 import os
 import sys
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime, timedelta, timezone
 
 MPC_URL = "https://minorplanetcenter.net/Extended_Files/CometEls.json"
@@ -82,11 +84,19 @@ def _parse_perihelion_date(T_str):
 
 def download_and_save():
     print(f"Downloading MPC comet catalog from {MPC_URL} ...")
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=4,
+        backoff_factor=15,          # waits 15, 30, 60, 120 s between attempts
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
     try:
-        resp = requests.get(MPC_URL, timeout=60)
+        resp = session.get(MPC_URL, timeout=(30, 120))  # (connect, read) timeouts
         resp.raise_for_status()
     except Exception as e:
-        print(f"ERROR: Failed to download catalog: {e}", file=sys.stderr)
+        print(f"ERROR: Failed to download catalog after retries: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:

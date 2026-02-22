@@ -25,6 +25,7 @@ jobs:
 
       - name: Download MPC comet catalog
         run: python scripts/update_comet_catalog.py
+        continue-on-error: true   # MPC is occasionally unreachable; don't fail the whole run
 
       - name: Commit and push if catalog changed
         run: |
