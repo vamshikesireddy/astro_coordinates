@@ -462,8 +462,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     for c in [target_col, pri_col, 'Type',
               'Rise', 'Transit', 'Set', dur_col,
               vmag_col, ra_col, dec_col, 'Constellation',
-              'Moon Sep (°)', 'Moon Status', 'Status',
-              _link_col]:
+              'Status', _link_col]:
         if c and c in df_plan.columns and c not in display_cols:
             display_cols.append(c)
 
@@ -473,8 +472,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
         target_col: 2.6, pri_col: 1.5, 'Type': 1.2,
         'Rise': 1.4, 'Transit': 1.4, 'Set': 1.4,
         dur_col: 1.2, vmag_col: 1.0, ra_col: 1.9, dec_col: 1.7,
-        'Constellation': 1.6, 'Moon Sep (°)': 1.2, 'Moon Status': 1.5,
-        'Status': 1.7, _link_col: 4.5,
+        'Constellation': 1.6, 'Status': 1.7, _link_col: 4.5,
     }
     col_widths = [_W.get(c, 1.5) * cm for c in display_cols]
 
@@ -1171,7 +1169,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
         if not df_dsos.empty:
             # Observability check (same pattern as comet/asteroid sections)
             location_d = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
-            is_obs_list, reason_list = [], []
+            is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
             for _, row in df_dsos.iterrows():
                 try:
                     sc = SkyCoord(row['RA'], row['Dec'], frame='icrs')
@@ -1186,6 +1184,9 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                             moon_locs_chk = [get_moon(Time(t), location_d) for t in check_times]
                         except Exception:
                             moon_locs_chk = [moon_loc] * 3
+                    _min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    moon_sep_list.append(round(_min_sep, 1))
+                    moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                     obs, reason = False, "Not visible during window"
                     if str(row.get('Status', '')) == "Never Rises":
                         reason = "Never Rises"
@@ -1202,9 +1203,14 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                 except Exception:
                     is_obs_list.append(False)
                     reason_list.append("Parse Error")
+                    moon_sep_list.append(0.0)
+                    moon_status_list.append("")
 
             df_dsos["is_observable"] = is_obs_list
             df_dsos["filter_reason"] = reason_list
+            if moon_sep_list:
+                df_dsos["Moon Sep (°)"] = moon_sep_list
+                df_dsos["Moon Status"] = moon_status_list
 
             # Dec filter: objects outside range go to Unobservable tab with reason
             if "_dec_deg" in df_dsos.columns and (min_dec > -90 or max_dec < 90):
@@ -1218,7 +1224,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
             df_filt_d = df_dsos[~df_dsos["is_observable"]].copy()
 
             display_cols_d = ["Name", "Common Name", "Type", "Magnitude", "Constellation",
-                              "Rise", "Transit", "Set", "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
+                              "Rise", "Transit", "Set", "RA", "Dec", "Status"]
 
             def display_dso_table(df_in):
                 show = [c for c in display_cols_d if c in df_in.columns]
@@ -1248,7 +1254,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
 
             st.download_button(
                 "Download DSO Data (CSV)",
-                data=df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
                 file_name=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
                 mime="text/csv"
             )
@@ -1339,7 +1345,7 @@ elif target_mode == "Planet (JPL Horizons)":
         if not df_planets.empty:
             # --- Observability check ---
             location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
-            is_obs_list, reason_list = [], []
+            is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
 
             for idx, row in df_planets.iterrows():
                 try:
@@ -1351,7 +1357,9 @@ elif target_mode == "Planet (JPL Horizons)":
                             moon_locs = [get_moon(Time(t), location) for t in check_times]
                         except Exception:
                             moon_locs = [moon_loc] * 3
-
+                    _min_sep = min(sc.separation(ml).degree for ml in moon_locs) if moon_locs else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    moon_sep_list.append(round(_min_sep, 1))
+                    moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                     obs, reason = False, "Not visible during window"
                     if str(row.get('Status', '')) == "Never Rises":
                         reason = "Never Rises"
@@ -1368,9 +1376,14 @@ elif target_mode == "Planet (JPL Horizons)":
                 except Exception:
                     is_obs_list.append(True)   # keep on error (same as before)
                     reason_list.append("")
+                    moon_sep_list.append(0.0)
+                    moon_status_list.append("")
 
             df_planets["is_observable"] = is_obs_list
             df_planets["filter_reason"] = reason_list
+            if moon_sep_list:
+                df_planets["Moon Sep (°)"] = moon_sep_list
+                df_planets["Moon Status"] = moon_status_list
 
             # Dec filter: objects outside range go to Unobservable tab with reason
             if "_dec_deg" in df_planets.columns and (min_dec > -90 or max_dec < 90):
@@ -1384,7 +1397,7 @@ elif target_mode == "Planet (JPL Horizons)":
             df_filt_p = df_planets[~df_planets["is_observable"]].copy()
 
             display_cols_p = ["Name", "Constellation", "Rise", "Transit", "Set",
-                              "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
+                              "RA", "Dec", "Status"]
 
             tab_obs_p, tab_filt_p = st.tabs([
                 f"🎯 Observable ({len(df_obs_p)})",
@@ -1683,7 +1696,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
                 # Observability check (same pattern as planet section)
                 location_c = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
-                is_obs_list, reason_list = [], []
+                is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
                 for _, row in df_comets.iterrows():
                     try:
                         sc = SkyCoord(row['RA'], row['Dec'], frame='icrs')
@@ -1698,7 +1711,9 @@ elif target_mode == "Comet (JPL Horizons)":
                                 moon_locs_chk = [get_moon(Time(t), location_c) for t in check_times]
                             except Exception:
                                 moon_locs_chk = [moon_loc] * 3
-
+                        _min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                        moon_sep_list.append(round(_min_sep, 1))
+                        moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                         obs, reason = False, "Not in window (Alt/Az/Moon)"
                         if str(row.get('Status', '')) == "Never Rises":
                             reason = "Never Rises"
@@ -1715,9 +1730,14 @@ elif target_mode == "Comet (JPL Horizons)":
                     except Exception:
                         is_obs_list.append(False)
                         reason_list.append("Parse Error")
+                        moon_sep_list.append(0.0)
+                        moon_status_list.append("")
 
                 df_comets["is_observable"] = is_obs_list
                 df_comets["filter_reason"] = reason_list
+                if moon_sep_list:
+                    df_comets["Moon Sep (°)"] = moon_sep_list
+                    df_comets["Moon Status"] = moon_status_list
 
                 # Dec filter: objects outside range go to Unobservable tab with reason
                 if "_dec_deg" in df_comets.columns and (min_dec > -90 or max_dec < 90):
@@ -1731,7 +1751,7 @@ elif target_mode == "Comet (JPL Horizons)":
                 df_filt_c = df_comets[~df_comets["is_observable"]].copy()
 
                 display_cols_c = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                                  "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
+                                  "RA", "Dec", "Status"]
 
                 def display_comet_table(df_in):
                     show = [c for c in display_cols_c if c in df_in.columns]
@@ -1776,7 +1796,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
                 st.download_button(
                     "Download Comet Data (CSV)",
-                    data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                    data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
                     file_name="comets_visibility.csv",
                     mime="text/csv"
                 )
@@ -1941,7 +1961,7 @@ elif target_mode == "Comet (JPL Horizons)":
                             f"\U0001f47b Unobservable ({len(_df_filt_cat)})"
                         ])
                         _show_cols_cat = ["Name", "Constellation", "Rise", "Transit", "Set",
-                                          "Moon Status", "Moon Sep (\u00b0)", "RA", "Dec", "Status"]
+                                          "RA", "Dec", "Status"]
                         with _tab_obs_cat:
                             st.subheader("Observable Comets (Catalog)")
                             plot_visibility_timeline(
@@ -1963,7 +1983,7 @@ elif target_mode == "Comet (JPL Horizons)":
                         st.download_button(
                             "Download Catalog Data (CSV)",
                             data=_df_cat.drop(
-                                columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"],
+                                columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"],
                                 errors="ignore"
                             ).to_csv(index=False).encode("utf-8"),
                             file_name="catalog_comets_visibility.csv",
@@ -2241,7 +2261,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
             df_asteroids["Window"] = df_asteroids["Name"].apply(_window_status)
 
             location_a = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
-            is_obs_list, reason_list = [], []
+            is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
             for _, row in df_asteroids.iterrows():
                 try:
                     sc = SkyCoord(row['RA'], row['Dec'], frame='icrs')
@@ -2256,6 +2276,9 @@ elif target_mode == "Asteroid (JPL Horizons)":
                             moon_locs_chk = [get_moon(Time(t), location_a) for t in check_times]
                         except Exception:
                             moon_locs_chk = [moon_loc] * 3
+                    _min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    moon_sep_list.append(round(_min_sep, 1))
+                    moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                     obs, reason = False, "Not visible during window"
                     if str(row.get('Status', '')) == "Never Rises":
                         reason = "Never Rises"
@@ -2272,9 +2295,14 @@ elif target_mode == "Asteroid (JPL Horizons)":
                 except Exception:
                     is_obs_list.append(False)
                     reason_list.append("Parse Error")
+                    moon_sep_list.append(0.0)
+                    moon_status_list.append("")
 
             df_asteroids["is_observable"] = is_obs_list
             df_asteroids["filter_reason"] = reason_list
+            if moon_sep_list:
+                df_asteroids["Moon Sep (°)"] = moon_sep_list
+                df_asteroids["Moon Status"] = moon_status_list
 
             # Dec filter: objects outside range go to Unobservable tab with reason
             if "_dec_deg" in df_asteroids.columns and (min_dec > -90 or max_dec < 90):
@@ -2288,7 +2316,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
             df_filt_a = df_asteroids[~df_asteroids["is_observable"]].copy()
 
             display_cols_a = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                              "Moon Status", "Moon Sep (°)", "RA", "Dec", "Status"]
+                              "RA", "Dec", "Status"]
 
             def display_asteroid_table(df_in):
                 show = [c for c in display_cols_a if c in df_in.columns]
@@ -2333,7 +2361,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
             st.download_button(
                 "Download Asteroid Data (CSV)",
-                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
                 file_name="asteroids_visibility.csv",
                 mime="text/csv"
             )
@@ -2674,17 +2702,18 @@ elif target_mode == "Cosmic Cataclysm":
                     is_obs = True
                     filt_reason = ""
 
-                    # Moon Check (Start Time for display)
-                    moon_sep = 0.0
-                    moon_status = ""
+                    # Moon positions across window (start / mid / end) — used for both display and filter
+                    check_times = [start_time, start_time + timedelta(minutes=duration/2), start_time + timedelta(minutes=duration)]
+                    moon_locs_dynamic = []
                     if moon_loc:
-                        moon_sep = sc.separation(moon_loc).degree
-                        
-                        # Determine status based on illumination and separation
-                        if 'moon_illum' in locals():
-                             moon_status = get_moon_status(moon_illum, moon_sep)
-                    
-                    # Pre-calculated moon_locs logic is needed here too
+                        try:
+                            moon_locs_dynamic = [get_moon(Time(t), location) for t in check_times]
+                        except Exception:
+                            moon_locs_dynamic = [moon_loc] * 3
+
+                    # Moon Sep = minimum separation across window (worst case)
+                    moon_sep = min(sc.separation(ml).degree for ml in moon_locs_dynamic) if moon_locs_dynamic else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    moon_status = get_moon_status(moon_illum, moon_sep) if moon_loc else ""
 
                     # 1. Basic Status
                     if is_obs:
@@ -2697,17 +2726,6 @@ elif target_mode == "Cosmic Cataclysm":
 
                     # 2. Advanced Filters (Alt/Az)
                     if is_obs:
-                        # Check Start, Mid, End of window
-                        check_times = [start_time, start_time + timedelta(minutes=duration/2), start_time + timedelta(minutes=duration)]
-                        
-                        # Reuse or calculate moon positions for these times
-                        moon_locs_dynamic = []
-                        if moon_loc:
-                            try:
-                                moon_locs_dynamic = [get_moon(Time(t), location) for t in check_times]
-                            except:
-                                moon_locs_dynamic = [moon_loc] * 3
-
                         passed_checks = False
                         for i, t_check in enumerate(check_times):
                             # Quick AltAz check
@@ -2773,13 +2791,13 @@ elif target_mode == "Cosmic Cataclysm":
             )
 
             # Reorder columns to put Name and Planning info first
-            priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set', 'Moon Status', 'Moon Sep (°)', 'Status']
+            priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set', 'Status']
             
             # Ensure Priority is visible and upfront
             if pri_col and pri_col in df_display.columns:
                 priority_cols.insert(1, pri_col)
 
-            other_cols = [c for c in df_display.columns if c not in priority_cols and c != link_col]
+            other_cols = [c for c in df_display.columns if c not in priority_cols and c != link_col and c not in ('Moon Sep (°)', 'Moon Status')]
             
             final_order = priority_cols + other_cols
             if link_col:
@@ -2830,7 +2848,7 @@ elif target_mode == "Cosmic Cataclysm":
                     )
                 if dur_col and dur_col in final_table.columns:
                     col_config[dur_col] = st.column_config.NumberColumn(
-                        dur_col, format="%.1f min"
+                        dur_col, format="%d min"
                     )
 
                 if pri_col and pri_col in final_table.columns:
@@ -2980,7 +2998,7 @@ elif target_mode == "Cosmic Cataclysm":
                 with _bc2:
                     st.download_button(
                         "📊 All Alerts (CSV)",
-                        data=df_alerts.to_csv(index=False).encode('utf-8'),
+                        data=df_alerts.drop(columns=["Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode('utf-8'),
                         file_name="unistellar_targets.csv",
                         mime="text/csv",
                         use_container_width=True,
@@ -3105,8 +3123,7 @@ elif target_mode == "Cosmic Cataclysm":
                                 for _c in [target_col, pri_col, 'Type',
                                            'Rise', 'Transit', 'Set', dur_col,
                                            vmag_col, ra_col, dec_col, 'Constellation',
-                                           'Moon Sep (°)', 'Moon Status', 'Status',
-                                           _plan_link_col]:
+                                           'Status', _plan_link_col]:
                                     if _c and _c in _scheduled.columns and _c not in _plan_show:
                                         _plan_show.append(_c)
                                 _plan_display = _scheduled[
@@ -3114,14 +3131,10 @@ elif target_mode == "Cosmic Cataclysm":
                                 ].copy()
 
                                 # Column config
-                                _plan_cfg = {
-                                    'Moon Sep (°)': st.column_config.NumberColumn(
-                                        'Moon Sep (°)', format='%.1f°'
-                                    ),
-                                }
+                                _plan_cfg = {}
                                 if dur_col and dur_col in _plan_display.columns:
                                     _plan_cfg[dur_col] = st.column_config.NumberColumn(
-                                        dur_col, format="%.1f min"
+                                        dur_col, format="%d min"
                                     )
                                 # Show the raw URL as text (unistellar:// deeplinks are
                                 # not http so LinkColumn would hide the actual URL)
@@ -3260,35 +3273,6 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     
     df = pd.DataFrame(results)
     
-    # --- Add Moon Columns to Detailed Data ---
-    if lat is not None and lon is not None:
-        try:
-            # Generate time steps matching compute_trajectory (10 min steps)
-            steps = len(df)
-            times_utc = [(start_time + timedelta(minutes=i*10)).astimezone(pytz.utc) for i in range(steps)]
-            t_grid = Time(times_utc)
-            
-            # Get Moon positions for all steps
-            moon_locs = get_moon(t_grid, location)
-            
-            # Calculate Illumination (approx constant for session)
-            sun_loc = get_sun(Time(start_time))
-            elongation = sun_loc.separation(moon_locs[0])
-            moon_illum = float(0.5 * (1 - math.cos(elongation.rad))) * 100
-            
-            sep_list = []
-            status_list = []
-            
-            for i in range(steps):
-                t_coord = ephem_coords[i] if ephem_coords and i < len(ephem_coords) else sky_coord
-                sep = t_coord.separation(moon_locs[i]).degree
-                sep_list.append(round(sep, 1))
-                status_list.append(get_moon_status(moon_illum, sep))
-            
-            df["Moon Sep (°)"] = sep_list
-            df["Moon Status"] = status_list
-        except Exception:
-            pass
 
     # --- Moon Check ---
     current_moon_sep = None

@@ -134,31 +134,41 @@ The Comet section has an internal radio toggle: `"📋 My List"` and `"🔭 Expl
 
 Streamlit renders pandas `float64` columns with full precision by default. Use `st.column_config.NumberColumn` to control the displayed format while keeping the underlying value numeric (so column-header sorting works correctly).
 
-A shared config dict is defined at module level near the constants:
-```python
-_MOON_SEP_COL_CONFIG = {
-    "Moon Sep (°)": st.column_config.NumberColumn("Moon Sep (°)", format="%.1f°"),
-}
-```
-
-This is passed as `column_config=_MOON_SEP_COL_CONFIG` to every `st.dataframe` call that shows Moon Sep (DSO, Comet My List, Comet Catalog, Asteroid, Planet, Cosmic observable tables).
-
-For the Cosmic section's `display_styled_table`, it is merged into the existing per-call `col_config`:
-```python
-col_config = dict(_MOON_SEP_COL_CONFIG)   # start with shared defaults
-# then add section-specific entries (DeepLink, Duration)
-```
+`_MOON_SEP_COL_CONFIG` is still defined at module level but **Moon Sep (°) and Moon Status are no longer shown in any overview table or CSV download**. The dict is retained for backward compatibility but is effectively unused by display code.
 
 The Cosmic Duration column is sourced in seconds from the scraper and **converted to minutes** immediately after `df_display` is built:
 ```python
 if dur_col and dur_col in df_display.columns:
     df_display[dur_col] = pd.to_numeric(df_display[dur_col], errors='coerce') / 60
 ```
-It is then formatted with `st.column_config.NumberColumn(format="%.1f min")` inside `display_styled_table` — it stays numeric (float), not a string, so sorting works.
+It is formatted with `st.column_config.NumberColumn(format="%d min")` inside `display_styled_table` — displays as `10 min` (integer, no decimal). It stays numeric (float) internally so sorting works.
 
 `build_night_plan` reads the Duration column as **minutes** and schedules slots with `timedelta(minutes=dur_min)` (default `5.0` min).
 
 **Rule:** Never convert a column to string just to add a unit suffix (e.g. `col.astype(str) + " min"`). That breaks column-header sorting. Always use `column_config` instead.
+
+### 7a. Moon Separation — How It Works
+
+Moon Sep and Moon Status are **computed internally** in every observability loop but are **not shown** in overview tables or included in CSV/PDF downloads.
+
+**Calculation:** `Moon Sep (°)` = minimum angular separation across 3 check times (start / mid / end of the observation window). This is the worst-case proximity during the night, which is what matters for planning. Single-snapshot-at-start-time values were removed because a target rising at 2 AM would show its moon sep from sunset — up to 7+ hours stale.
+
+```python
+_min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk \
+           else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+```
+
+**Where Moon Sep still appears:**
+- The **"Min Moon Sep" sidebar filter** (slider) uses the per-row min sep to hide objects below the threshold — this still works correctly.
+- The **individual trajectory view** shows a `Moon Sep` summary metric and a warning if the target is closer than the slider limit. These use a single-point `sky_coord.separation(moon_loc).degree` calculation, not per-row columns.
+
+**Status thresholds** (`get_moon_status(illumination, separation)`):
+- 🌑 Dark Sky: illumination < 15%
+- ⛔ Avoid: illumination ≥ 15% and sep < 30°
+- ⚠️ Caution: illumination ≥ 15% and sep 30°–60°
+- ✅ Safe: illumination ≥ 15% and sep > 60°
+
+Note: thresholds do not scale with illumination above 15% — a full moon at 65° shows Safe. May be refined later.
 
 ### 8. Night Plan Builder (Cosmic Cataclysm section)
 
@@ -205,7 +215,7 @@ After clicking Build Plan, five sequential filters are applied to `df_obs` befor
 4. Discovery recency (`pd.to_datetime(..., utc=True)` vs cutoff; unknown dates pass through)
 5. Minimum set time (compares `_set_datetime` against a tz-aware datetime; `pd.isnull` targets — Always Up — always pass)
 
-The plan table shows: `Obs Start · Obs End · Name · Priority · Type · Rise · Transit · Set · Duration · Vmag · RA · Dec · Constellation · Moon Sep (°) · Moon Status · Status · Link`.
+The plan table shows: `Obs Start · Obs End · Name · Priority · Type · Rise · Transit · Set · Duration · Vmag · RA · Dec · Constellation · Status · Link`.
 
 The link column is configured as `TextColumn` (not `LinkColumn`) in **both** the observable table (`display_styled_table`) and the Night Plan Builder table. `LinkColumn` only handles `http/https` URLs — using it for `unistellar://` deep links opens a blank page. `TextColumn` displays the full URL as plain text so it is visible and copyable.
 
@@ -313,7 +323,7 @@ GitHub Actions uses the automatic `secrets.GITHUB_TOKEN` — no manual PAT neede
    - Call `plot_visibility_timeline()` in Observable tab
    - Add trajectory picker at bottom
 3. Follow the same tab structure: `st.tabs(["🎯 Observable (N)", "👻 Unobservable (M)"])`
-4. Pass `column_config=_MOON_SEP_COL_CONFIG` to every `st.dataframe` call that shows Moon Sep. For extra numeric columns (e.g. a unit-suffixed value), add them to a copy of the dict: `col_config = dict(_MOON_SEP_COL_CONFIG); col_config["My Col"] = st.column_config.NumberColumn(format="%d units")`
+4. Do **not** include `Moon Sep (°)` or `Moon Status` in `display_cols_*` — these columns are computed internally for the sidebar filter but intentionally excluded from all displayed tables and CSV downloads. For extra numeric columns that need a unit suffix, use `st.column_config.NumberColumn(format="%d units")` directly in the `column_config` dict.
 
 ---
 
