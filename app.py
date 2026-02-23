@@ -462,7 +462,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     for c in [target_col, pri_col, 'Type',
               'Rise', 'Transit', 'Set', dur_col,
               vmag_col, ra_col, dec_col, 'Constellation',
-              'Status', _link_col]:
+              'Status', 'Moon Sep (°)', _link_col]:
         if c and c in df_plan.columns and c not in display_cols:
             display_cols.append(c)
 
@@ -472,7 +472,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
         target_col: 2.6, pri_col: 1.5, 'Type': 1.2,
         'Rise': 1.4, 'Transit': 1.4, 'Set': 1.4,
         dur_col: 1.2, vmag_col: 1.0, ra_col: 1.9, dec_col: 1.7,
-        'Constellation': 1.6, 'Status': 1.7, _link_col: 4.5,
+        'Constellation': 1.6, 'Status': 1.7, 'Moon Sep (°)': 1.6, _link_col: 4.5,
     }
     col_widths = [_W.get(c, 1.5) * cm for c in display_cols]
 
@@ -539,7 +539,7 @@ COMET_CATALOG_FILE = "comets_catalog.json"
 
 # Standard column display configs reused across all sections
 _MOON_SEP_COL_CONFIG = {
-    "Moon Sep (°)": st.column_config.NumberColumn("Moon Sep (°)", format="%.1f°"),
+    "Moon Sep (°)": st.column_config.TextColumn("Moon Sep (°)"),
 }
 
 # Aliases for comets that appear under alternate designations on external pages
@@ -1184,8 +1184,10 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                             moon_locs_chk = [get_moon(Time(t), location_d) for t in check_times]
                         except Exception:
                             moon_locs_chk = [moon_loc] * 3
-                    _min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk else (sc.separation(moon_loc).degree if moon_loc else 0.0)
-                    moon_sep_list.append(round(_min_sep, 1))
+                    _seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
+                    _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _max_sep = max(_seps) if _seps else _min_sep
+                    moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                     moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                     obs, reason = False, "Not visible during window"
                     if str(row.get('Status', '')) == "Never Rises":
@@ -1203,7 +1205,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                 except Exception:
                     is_obs_list.append(False)
                     reason_list.append("Parse Error")
-                    moon_sep_list.append(0.0)
+                    moon_sep_list.append("–")
                     moon_status_list.append("")
 
             df_dsos["is_observable"] = is_obs_list
@@ -1224,7 +1226,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
             df_filt_d = df_dsos[~df_dsos["is_observable"]].copy()
 
             display_cols_d = ["Name", "Common Name", "Type", "Magnitude", "Constellation",
-                              "Rise", "Transit", "Set", "RA", "Dec", "Status"]
+                              "Rise", "Transit", "Set", "RA", "Dec", "Status", "Moon Sep (°)"]
 
             def display_dso_table(df_in):
                 show = [c for c in display_cols_d if c in df_in.columns]
@@ -1245,6 +1247,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                 plot_visibility_timeline(df_obs_d, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
                 st.caption("Sorted by magnitude (brightest first). Use the Gantt chart sort options to reorder by rise/set time.")
                 display_dso_table(df_obs_d)
+                st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
 
             with tab_filt_d:
                 st.caption("Objects not meeting your filters (Altitude/Azimuth/Moon) during the observation window.")
@@ -1254,7 +1257,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
 
             st.download_button(
                 "Download DSO Data (CSV)",
-                data=df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
                 file_name=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
                 mime="text/csv"
             )
@@ -1357,8 +1360,10 @@ elif target_mode == "Planet (JPL Horizons)":
                             moon_locs = [get_moon(Time(t), location) for t in check_times]
                         except Exception:
                             moon_locs = [moon_loc] * 3
-                    _min_sep = min(sc.separation(ml).degree for ml in moon_locs) if moon_locs else (sc.separation(moon_loc).degree if moon_loc else 0.0)
-                    moon_sep_list.append(round(_min_sep, 1))
+                    _seps = [sc.separation(ml).degree for ml in moon_locs] if moon_locs else []
+                    _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _max_sep = max(_seps) if _seps else _min_sep
+                    moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                     moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                     obs, reason = False, "Not visible during window"
                     if str(row.get('Status', '')) == "Never Rises":
@@ -1376,7 +1381,7 @@ elif target_mode == "Planet (JPL Horizons)":
                 except Exception:
                     is_obs_list.append(True)   # keep on error (same as before)
                     reason_list.append("")
-                    moon_sep_list.append(0.0)
+                    moon_sep_list.append("–")
                     moon_status_list.append("")
 
             df_planets["is_observable"] = is_obs_list
@@ -1397,7 +1402,7 @@ elif target_mode == "Planet (JPL Horizons)":
             df_filt_p = df_planets[~df_planets["is_observable"]].copy()
 
             display_cols_p = ["Name", "Constellation", "Rise", "Transit", "Set",
-                              "RA", "Dec", "Status"]
+                              "RA", "Dec", "Status", "Moon Sep (°)"]
 
             tab_obs_p, tab_filt_p = st.tabs([
                 f"🎯 Observable ({len(df_obs_p)})",
@@ -1409,6 +1414,7 @@ elif target_mode == "Planet (JPL Horizons)":
                     plot_visibility_timeline(df_obs_p, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
                     show_p = [c for c in display_cols_p if c in df_obs_p.columns]
                     st.dataframe(df_obs_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
+                    st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 else:
                     st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az {az_range}, Moon Sep > {min_moon_sep}°) during the selected window.")
 
@@ -1711,8 +1717,10 @@ elif target_mode == "Comet (JPL Horizons)":
                                 moon_locs_chk = [get_moon(Time(t), location_c) for t in check_times]
                             except Exception:
                                 moon_locs_chk = [moon_loc] * 3
-                        _min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk else (sc.separation(moon_loc).degree if moon_loc else 0.0)
-                        moon_sep_list.append(round(_min_sep, 1))
+                        _seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
+                        _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                        _max_sep = max(_seps) if _seps else _min_sep
+                        moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                         moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                         obs, reason = False, "Not in window (Alt/Az/Moon)"
                         if str(row.get('Status', '')) == "Never Rises":
@@ -1730,7 +1738,7 @@ elif target_mode == "Comet (JPL Horizons)":
                     except Exception:
                         is_obs_list.append(False)
                         reason_list.append("Parse Error")
-                        moon_sep_list.append(0.0)
+                        moon_sep_list.append("–")
                         moon_status_list.append("")
 
                 df_comets["is_observable"] = is_obs_list
@@ -1751,7 +1759,7 @@ elif target_mode == "Comet (JPL Horizons)":
                 df_filt_c = df_comets[~df_comets["is_observable"]].copy()
 
                 display_cols_c = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                                  "RA", "Dec", "Status"]
+                                  "RA", "Dec", "Status", "Moon Sep (°)"]
 
                 def display_comet_table(df_in):
                     show = [c for c in display_cols_c if c in df_in.columns]
@@ -1781,6 +1789,7 @@ elif target_mode == "Comet (JPL Horizons)":
                     st.subheader("Observable Comets")
                     plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
                     display_comet_table(df_obs_c)
+                    st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                     st.markdown(
                         "**Legend:** <span style='background-color: #e3f2fd; color: #0d47a1; "
                         "padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⭐ PRIORITY</span>"
@@ -1796,7 +1805,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
                 st.download_button(
                     "Download Comet Data (CSV)",
-                    data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                    data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
                     file_name="comets_visibility.csv",
                     mime="text/csv"
                 )
@@ -2276,8 +2285,10 @@ elif target_mode == "Asteroid (JPL Horizons)":
                             moon_locs_chk = [get_moon(Time(t), location_a) for t in check_times]
                         except Exception:
                             moon_locs_chk = [moon_loc] * 3
-                    _min_sep = min(sc.separation(ml).degree for ml in moon_locs_chk) if moon_locs_chk else (sc.separation(moon_loc).degree if moon_loc else 0.0)
-                    moon_sep_list.append(round(_min_sep, 1))
+                    _seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
+                    _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _max_sep = max(_seps) if _seps else _min_sep
+                    moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                     moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
                     obs, reason = False, "Not visible during window"
                     if str(row.get('Status', '')) == "Never Rises":
@@ -2295,7 +2306,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
                 except Exception:
                     is_obs_list.append(False)
                     reason_list.append("Parse Error")
-                    moon_sep_list.append(0.0)
+                    moon_sep_list.append("–")
                     moon_status_list.append("")
 
             df_asteroids["is_observable"] = is_obs_list
@@ -2316,7 +2327,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
             df_filt_a = df_asteroids[~df_asteroids["is_observable"]].copy()
 
             display_cols_a = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                              "RA", "Dec", "Status"]
+                              "RA", "Dec", "Status", "Moon Sep (°)"]
 
             def display_asteroid_table(df_in):
                 show = [c for c in display_cols_a if c in df_in.columns]
@@ -2346,6 +2357,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
                 st.subheader("Observable Asteroids")
                 plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
                 display_asteroid_table(df_obs_a)
+                st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 st.markdown(
                     "**Legend:** <span style='background-color: #e3f2fd; color: #0d47a1; "
                     "padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⭐ PRIORITY</span>"
@@ -2361,7 +2373,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
             st.download_button(
                 "Download Asteroid Data (CSV)",
-                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Status"], errors="ignore").to_csv(index=False).encode("utf-8"),
                 file_name="asteroids_visibility.csv",
                 mime="text/csv"
             )
@@ -2711,8 +2723,10 @@ elif target_mode == "Cosmic Cataclysm":
                         except Exception:
                             moon_locs_dynamic = [moon_loc] * 3
 
-                    # Moon Sep = minimum separation across window (worst case)
-                    moon_sep = min(sc.separation(ml).degree for ml in moon_locs_dynamic) if moon_locs_dynamic else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    # Moon Sep = range across window (min–max)
+                    _seps_dyn = [sc.separation(ml).degree for ml in moon_locs_dynamic] if moon_locs_dynamic else []
+                    moon_sep = min(_seps_dyn) if _seps_dyn else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _moon_sep_max = max(_seps_dyn) if _seps_dyn else moon_sep
                     moon_status = get_moon_status(moon_illum, moon_sep) if moon_loc else ""
 
                     # 1. Basic Status
@@ -2751,7 +2765,7 @@ elif target_mode == "Cosmic Cataclysm":
                     row_dict['_dec_deg'] = sc.dec.degree   # needed for Dec filter
                     row_dict['is_observable'] = is_obs
                     row_dict['filter_reason'] = filt_reason
-                    row_dict['Moon Sep (°)'] = round(moon_sep, 1) if moon_loc else 0
+                    row_dict['Moon Sep (°)'] = f"{moon_sep:.1f}°–{_moon_sep_max:.1f}°" if moon_loc else "–"
                     row_dict['Moon Status'] = moon_status
                     planning_data.append(row_dict)
                 except Exception:
@@ -2797,7 +2811,7 @@ elif target_mode == "Cosmic Cataclysm":
             if pri_col and pri_col in df_display.columns:
                 priority_cols.insert(1, pri_col)
 
-            other_cols = [c for c in df_display.columns if c not in priority_cols and c != link_col and c not in ('Moon Sep (°)', 'Moon Status')]
+            other_cols = [c for c in df_display.columns if c not in priority_cols and c != link_col and c not in ('Moon Status',)]
             
             final_order = priority_cols + other_cols
             if link_col:
@@ -2875,6 +2889,7 @@ elif target_mode == "Cosmic Cataclysm":
                 st.info("ℹ️ **Note:** The 'DeepLink' column is for Unistellar telescopes only. For other equipment, please use the RA/Dec coordinates.")
 
                 display_styled_table(df_obs)
+                st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
 
                 # Legend (below table so it's clear it belongs to the data, not the chart)
                 st.markdown("""
@@ -2998,7 +3013,7 @@ elif target_mode == "Cosmic Cataclysm":
                 with _bc2:
                     st.download_button(
                         "📊 All Alerts (CSV)",
-                        data=df_alerts.drop(columns=["Moon Sep (°)", "Moon Status"], errors="ignore").to_csv(index=False).encode('utf-8'),
+                        data=df_alerts.drop(columns=["Moon Status"], errors="ignore").to_csv(index=False).encode('utf-8'),
                         file_name="unistellar_targets.csv",
                         mime="text/csv",
                         use_container_width=True,
@@ -3123,7 +3138,7 @@ elif target_mode == "Cosmic Cataclysm":
                                 for _c in [target_col, pri_col, 'Type',
                                            'Rise', 'Transit', 'Set', dur_col,
                                            vmag_col, ra_col, dec_col, 'Constellation',
-                                           'Status', _plan_link_col]:
+                                           'Status', 'Moon Sep (°)', _plan_link_col]:
                                     if _c and _c in _scheduled.columns and _c not in _plan_show:
                                         _plan_show.append(_c)
                                 _plan_display = _scheduled[
@@ -3136,6 +3151,8 @@ elif target_mode == "Cosmic Cataclysm":
                                     _plan_cfg[dur_col] = st.column_config.NumberColumn(
                                         dur_col, format="%d min"
                                     )
+                                if 'Moon Sep (°)' in _plan_display.columns:
+                                    _plan_cfg['Moon Sep (°)'] = st.column_config.TextColumn("Moon Sep (°)")
                                 # Show the raw URL as text (unistellar:// deeplinks are
                                 # not http so LinkColumn would hide the actual URL)
                                 if _plan_link_col and _plan_link_col in _plan_display.columns:
@@ -3325,10 +3342,14 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     chart_data = df.copy()
     chart_data["Local Time"] = pd.to_datetime(chart_data["Local Time"])
 
+    _traj_tooltip = [alt.Tooltip('Local Time', format='%Y-%m-%d %H:%M'), 'Altitude (°)', 'Azimuth (°)', 'Direction']
+    if 'Moon Sep (°)' in chart_data.columns:
+        _traj_tooltip.append(alt.Tooltip('Moon Sep (°)', title='Moon Sep (°)'))
+
     chart = alt.Chart(chart_data).mark_line(point=True).encode(
         x=alt.X('Local Time', axis=alt.Axis(format='%H:%M')),
         y=alt.Y('Altitude (°)'),
-        tooltip=[alt.Tooltip('Local Time', format='%Y-%m-%d %H:%M'), 'Altitude (°)', 'Azimuth (°)', 'Direction']
+        tooltip=_traj_tooltip
     ).interactive()
     
     st.altair_chart(chart, width='stretch')

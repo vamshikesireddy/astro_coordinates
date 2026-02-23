@@ -5,6 +5,13 @@ import pytz
 import math
 from datetime import timedelta
 
+try:
+    from astropy.coordinates import get_moon as _get_moon
+except ImportError:
+    from astropy.coordinates import get_body
+    def _get_moon(time, location=None, ephemeris=None):
+        return get_body("moon", time, location, ephemeris=ephemeris)
+
 def azimuth_to_compass(az):
     directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
                   'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
@@ -36,6 +43,12 @@ def compute_trajectory(sky_coord, location, start_time_local, duration_minutes=2
         altaz = target_coord.transform_to(altaz_frame)
         compass_dir = azimuth_to_compass(altaz.az.degree)
 
+        try:
+            moon_sky = _get_moon(time_utc, location)
+            moon_sep_val = round(target_coord.separation(moon_sky).degree, 1)
+        except Exception:
+            moon_sep_val = None
+
         results.append({
             "Local Time": t.strftime('%Y-%m-%d %H:%M:%S'),
             "RA": target_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
@@ -43,7 +56,8 @@ def compute_trajectory(sky_coord, location, start_time_local, duration_minutes=2
             "Azimuth (°)": round(altaz.az.degree, 2),
             "Altitude (°)": round(altaz.alt.degree, 2),
             "Direction": compass_dir,
-            "Constellation": constellation
+            "Constellation": constellation,
+            "Moon Sep (°)": moon_sep_val,
         })
     return results
 
