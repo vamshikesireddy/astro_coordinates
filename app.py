@@ -3316,6 +3316,36 @@ elif target_mode == "Cosmic Cataclysm":
                 None,
             )
 
+            # Parse discovery date strings (e.g. "Jul 14") into sortable datetimes.
+            # Strings without a year default to the current year; if that puts them in
+            # the future we roll back one year so "Jul 14" in Feb 2026 → Jul 2025.
+            if disc_col and disc_col in df_display.columns:
+                _today_utc = pd.Timestamp.now(tz='UTC').normalize()
+
+                def _parse_disc_date(val):
+                    if pd.isna(val) or not str(val).strip():
+                        return pd.NaT
+                    s = str(val).strip()
+                    try:
+                        # First try: standard parse ("Jul 14, 2025", "2025-07-14", etc.)
+                        dt = pd.to_datetime(s, errors='coerce')
+                        if pd.isna(dt):
+                            # Second try: month+day only ("Jul 14", "Dec 20")
+                            from datetime import datetime as _dt_cls
+                            dt_raw = _dt_cls.strptime(f"{s} {_today_utc.year}", '%b %d %Y')
+                            dt = pd.Timestamp(dt_raw, tz='UTC')
+                        else:
+                            if dt.tzinfo is None:
+                                dt = dt.tz_localize('UTC')
+                        # If parsed date is in the future, it belongs to the prior year
+                        if dt > _today_utc + pd.Timedelta(days=1):
+                            dt = dt.replace(year=dt.year - 1)
+                        return dt
+                    except Exception:
+                        return pd.NaT
+
+                df_display['_disc_sort'] = df_display[disc_col].apply(_parse_disc_date)
+
             # Reorder columns to put Name and Planning info first
             priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set', 'Status']
             
@@ -3354,7 +3384,12 @@ elif target_mode == "Cosmic Cataclysm":
             
             # Helper to style and display
             def display_styled_table(df_in):
-                final_table = df_in.drop(columns=actual_cols_to_drop + hidden_cols, errors='ignore')
+                _dt_in = df_in.copy()
+                # Swap the string disc_col values for parsed datetimes so
+                # Streamlit's column-header click sorts chronologically.
+                if disc_col and disc_col in _dt_in.columns and '_disc_sort' in _dt_in.columns:
+                    _dt_in[disc_col] = _dt_in['_disc_sort']
+                final_table = _dt_in.drop(columns=actual_cols_to_drop + hidden_cols, errors='ignore')
                 
                 # Force DeepLink to the very end
                 curr_cols = final_table.columns.tolist()
@@ -3375,6 +3410,10 @@ elif target_mode == "Cosmic Cataclysm":
                 if dur_col and dur_col in final_table.columns:
                     col_config[dur_col] = st.column_config.NumberColumn(
                         dur_col, format="%d min"
+                    )
+                if disc_col and disc_col in final_table.columns:
+                    col_config[disc_col] = st.column_config.DatetimeColumn(
+                        disc_col, format="MMM DD, YYYY"
                     )
 
                 if pri_col and pri_col in final_table.columns:
