@@ -75,7 +75,7 @@ It does **NOT** return `_dec_deg`, `_rise_naive`, `_set_naive`, `_transit_naive`
 
 ### 3. Always Up Objects in Gantt Chart
 
-"Always Up" objects (Status contains "Always Up") are always placed at the **bottom** of the chart for Earliest Set and Earliest Rise sorts, sorted among themselves by transit time ascending. For Default Order / Priority Order / Order By Discovery Date, they stay in their original data position.
+"Always Up" objects (Status contains "Always Up") are always placed at the **bottom** of the chart for Earliest Set, Earliest Rise, and Earliest Transit sorts, sorted among themselves by transit time ascending. For Default Order / Priority Order / Order By Discovery Date, they stay in their original data position.
 
 ```python
 _au_mask = chart_data['Status'].str.contains('Always Up', na=False)
@@ -99,12 +99,14 @@ alt.Chart(transit_data).mark_text(
 
 ### 5. Gantt Chart Sort Labels and Priority Sorting
 
-`plot_visibility_timeline(df, obs_start, obs_end, default_sort_label, priority_col)` accepts two optional parameters to control the third sort radio button:
+`plot_visibility_timeline(df, obs_start, obs_end, default_sort_label, priority_col)` accepts two optional parameters to control the fourth sort radio button (the section-specific option):
 
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
-| `default_sort_label` | `str` | `"Default Order"` | Label shown for the third sort option |
-| `priority_col` | `str \| None` | `None` | Column name used to rank rows when the third sort is active |
+| `default_sort_label` | `str` | `"Default Order"` | Label shown for the fourth sort option |
+| `priority_col` | `str \| None` | `None` | Column name used to rank rows when the fourth sort is active |
+
+The first three sort options are always present: **Earliest Set**, **Earliest Rise**, **Earliest Transit**. The fourth option is section-specific and controlled by these parameters.
 
 **Per-section sort label assignments:**
 
@@ -117,7 +119,7 @@ alt.Chart(transit_data).mark_text(
 | Asteroids | `"Priority Order"` | `"Priority"` | URGENT → HIGH → LOW → ⭐ PRIORITY → unassigned, then natural order |
 | Cosmic Cataclysm | `"Order By Discovery Date"` | — | Preserves scrape order (Unistellar lists by discovery date) |
 
-When `priority_col` is provided and the third sort is active, rows are ranked:
+When `priority_col` is provided and the fourth sort is active, rows are ranked:
 - `URGENT` → 0, `HIGH` → 1, `LOW` → 2, any other non-empty value (e.g. `⭐ PRIORITY`) → 3, blank/null → 4
 - Ties broken by original row order (`kind='mergesort'` — stable sort)
 - "Always Up" objects are **not** pushed to the bottom for this sort (they stay in priority-ranked position)
