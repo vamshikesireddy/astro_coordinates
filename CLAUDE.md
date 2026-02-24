@@ -151,11 +151,14 @@ It is formatted with `st.column_config.NumberColumn(format="%d min")` inside `di
 
 Moon Sep is **shown** in all overview tables as a range string and in CSV exports. Moon Status is computed internally (for the sidebar filter) but is **not shown** in any table or export.
 
+**IMPORTANT — `moon_sep_deg()` helper (backend/core.py):**
+All Moon–target angular separations **must** use `moon_sep_deg(target, moon)` instead of `target.separation(moon).degree`. Astropy's `get_body('moon')` returns a 3D GCRS coordinate (with distance). Calling `.separation()` across ICRS↔GCRS with 3D coords produces wildly wrong results (e.g. 4.5° for objects 98° apart). The helper strips the Moon's distance to get a correct direction-only separation. See CHANGELOG.md entry 2026-02-23 for full details.
+
 **Overview table calculation** — `Moon Sep (°)` column stores a `"min°–max°"` range string:
 
 ```python
-_seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
-_min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+_seps = [moon_sep_deg(sc, ml) for ml in moon_locs_chk] if moon_locs_chk else []
+_min_sep = min(_seps) if _seps else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
 _max_sep = max(_seps) if _seps else _min_sep
 moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
 ```
@@ -163,7 +166,7 @@ moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "�
 Three check times: start / mid / end of the observation window. `_min_sep` (worst case) is still used for `get_moon_status()` classification and the sidebar filter check. The range string is stored in the `Moon Sep (°)` column and formatted via `_MOON_SEP_COL_CONFIG` (a `TextColumn` — not a `NumberColumn`, because sorting as a number is not needed here).
 
 **Individual trajectory view:**
-- `compute_trajectory()` in `backend/core.py` calls `get_moon(time_utc, location)` at **every 10-minute timestep** and stores the per-step angular separation in a `Moon Sep (°)` column.
+- `compute_trajectory()` in `backend/core.py` calls `get_moon(time_utc, location)` at **every 10-minute timestep** and stores the per-step angular separation via `moon_sep_deg()` in a `Moon Sep (°)` column.
 - The trajectory **"Detailed Data"** table shows the exact Moon Sep angle at each row.
 - The trajectory **"Moon Sep" metric** (top of results) shows `min°–max°` computed from `df['Moon Sep (°)']` — the minimum drives the status classification and the warning threshold check.
 - The **Altitude vs Time chart** tooltip includes Moon Sep when hovering.
@@ -283,6 +286,7 @@ These pipelines are independent. New discoveries do NOT automatically appear in 
 | Function | File | Purpose |
 |---|---|---|
 | `calculate_planning_info()` | `backend/core.py` | Rise/Set/Transit + Status per object |
+| `moon_sep_deg()` | `backend/core.py` | Moon–target angular separation (strips 3D distance artifact) |
 | `compute_trajectory()` | `backend/core.py` | Altitude/Az/RA/Dec/Constellation/Moon Sep (°) per 10-min step |
 | `resolve_simbad()` | `backend/resolvers.py` | SIMBAD name lookup → SkyCoord |
 | `resolve_horizons()` | `backend/resolvers.py` | JPL Horizons comet/asteroid position |
