@@ -542,6 +542,343 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     return buf.getvalue()
 
 
+def _render_night_plan_builder(
+    df_obs, start_time, night_end, local_tz,
+    target_col="Name", ra_col="RA", dec_col="Dec",
+    pri_col=None, dur_col=None, vmag_col=None,
+    type_col=None, disc_col=None, link_col=None,
+    csv_label="All Targets (CSV)", csv_data=None,
+    csv_filename="targets.csv", section_key="",
+):
+    """Render a Night Plan Builder UI inside an already-open st.expander.
+
+    Adapts filter layout to available columns — sections with fewer data
+    columns get fewer filter widgets. All sections get Set-time and Moon
+    Status filters at minimum.
+    """
+    # ── Detect actual priority levels from data ─────────────────────
+    _has_pri = pri_col and pri_col in df_obs.columns
+    _pri_options = []
+    if _has_pri:
+        _raw_vals = df_obs[pri_col].dropna().astype(str).str.strip()
+        _raw_vals = _raw_vals[_raw_vals != '']
+        _unique_pri = sorted(_raw_vals.unique().tolist())
+        _pri_options = _unique_pri + ["(unassigned)"]
+        _has_tiers = any(
+            t in v.upper() for v in _unique_pri for t in ("URGENT", "HIGH", "LOW")
+        )
+
+    if _has_pri:
+        if _has_tiers:
+            st.caption(
+                "Filter observable targets, then build a sorted plan. "
+                "Targets are sorted **URGENT → HIGH → LOW → unassigned**, "
+                "then by set-time within each tier (things that set sooner go first)."
+            )
+        else:
+            st.caption(
+                "Filter observable targets, then build a sorted plan. "
+                "**Priority** targets are listed first, "
+                "then by set-time (things that set sooner go first)."
+            )
+    else:
+        st.caption(
+            "Filter observable targets, then build a sorted plan. "
+            "Targets are sorted by **set-time** (things that set sooner go first)."
+        )
+
+    # ── Row 1: priority (only if priority column exists) ──────────────
+    _sel_pri = None
+    if _has_pri and _pri_options:
+        _sel_pri = st.multiselect(
+            "Include priority levels:",
+            options=_pri_options,
+            default=_pri_options,
+            key=f"{section_key}_pri",
+            help=(
+                "Deselect a level to exclude those targets.  "
+                "'(unassigned)' catches targets with no priority label."
+            ),
+        )
+
+    # ── Row 2: adaptive filter columns (split into two rows if 4+) ───
+    st.caption("**Refine candidate pool** *(optional — defaults include everything)*")
+    _has_vmag = vmag_col and not df_obs.empty and vmag_col in df_obs.columns
+    _has_type = type_col and not df_obs.empty and type_col in df_obs.columns
+    _has_disc = disc_col and not df_obs.empty and disc_col in df_obs.columns
+    _has_moon = 'Moon Status' in df_obs.columns
+
+    _vmag_range = None
+    _sel_types = None
+    _disc_days = None
+    _min_set_input = None
+    _sel_moon = None
+    _all_moon_statuses = ["🌑 Dark Sky", "✅ Safe", "⚠️ Caution", "⛔ Avoid"]
+
+    # Count data-specific filters (before the always-present set_time + moon)
+    _data_filters = []
+    if _has_vmag:
+        _data_filters.append("vmag")
+    if _has_type:
+        _data_filters.append("type")
+    if _has_disc:
+        _data_filters.append("disc")
+
+    # Row 2a: data-specific filters (magnitude, type, discovery) — own row
+    if _data_filters:
+        _row_a = st.columns(len(_data_filters))
+        _col_idx = 0
+        if _has_vmag:
+            with _row_a[_col_idx]:
+                _vmag_numeric = pd.to_numeric(df_obs[vmag_col], errors='coerce').dropna()
+                if not _vmag_numeric.empty:
+                    _vmag_lo = float(_vmag_numeric.min())
+                    _vmag_hi = float(_vmag_numeric.max())
+                    _vmag_range = st.slider(
+                        f"Magnitude ({vmag_col})",
+                        min_value=round(_vmag_lo, 1),
+                        max_value=round(_vmag_hi, 1),
+                        value=(round(_vmag_lo, 1), round(_vmag_hi, 1)),
+                        step=0.1,
+                        key=f"{section_key}_vmag",
+                        help="Lower magnitude = brighter.",
+                    )
+            _col_idx += 1
+        if _has_type:
+            with _row_a[_col_idx]:
+                _all_types = sorted(
+                    df_obs[type_col].dropna().astype(str).unique().tolist()
+                )
+                _sel_types = st.multiselect(
+                    f"Type ({type_col})",
+                    options=_all_types,
+                    default=_all_types,
+                    key=f"{section_key}_type",
+                    help="Filter by object type or event class.",
+                )
+            _col_idx += 1
+        if _has_disc:
+            with _row_a[_col_idx]:
+                _disc_days = st.slider(
+                    "Discovered within last N days",
+                    min_value=1, max_value=365, value=365,
+                    key=f"{section_key}_disc",
+                    help="365 = no restriction. Lower to focus on fresh events.",
+                )
+
+    # Row 2b: set time + moon status — always their own row
+    _bottom_filters = ["set_time"]
+    if _has_moon:
+        _bottom_filters.append("moon")
+    _row_b = st.columns(len(_bottom_filters))
+
+    with _row_b[0]:
+        _min_set_input = st.time_input(
+            "Sets no earlier than",
+            value=start_time.time(),
+            key=f"{section_key}_set",
+            help="Exclude targets that set before this time.",
+        )
+
+    if _has_moon:
+        with _row_b[1]:
+            _sel_moon = st.multiselect(
+                "Moon Status",
+                options=_all_moon_statuses,
+                default=_all_moon_statuses,
+                key=f"{section_key}_moon",
+                help="Deselect '⛔ Avoid' to exclude targets too close to the Moon.",
+            )
+
+    # ── Row 3: action buttons ─────────────────────────────────────────
+    _bc1, _bc2 = st.columns(2)
+    with _bc1:
+        _do_build = st.button(
+            "🗓 Build Plan", type="primary", use_container_width=True,
+            key=f"{section_key}_build",
+        )
+    with _bc2:
+        _csv_src = csv_data if csv_data is not None else df_obs
+        st.download_button(
+            csv_label,
+            data=_csv_src.to_csv(index=False).encode('utf-8'),
+            file_name=csv_filename,
+            mime="text/csv",
+            use_container_width=True,
+            key=f"{section_key}_csv_all",
+            help="Download the full unfiltered target list as CSV.",
+        )
+
+    if _do_build:
+        if df_obs.empty:
+            st.warning("No observable targets to plan.")
+        else:
+            _plan_src = df_obs.copy()
+
+            # Filter: priority
+            if pri_col and pri_col in _plan_src.columns and _sel_pri:
+                def _matches_pri(val):
+                    v = str(val).upper().strip()
+                    for p in _sel_pri:
+                        if p == "(unassigned)" and v in ('', 'NAN', 'NONE', 'N/A'):
+                            return True
+                        elif p != "(unassigned)" and p in v:
+                            return True
+                    return False
+                _plan_src = _plan_src[_plan_src[pri_col].apply(_matches_pri)]
+
+            # Filter: magnitude
+            if vmag_col and vmag_col in _plan_src.columns and _vmag_range is not None:
+                _mag_num = pd.to_numeric(_plan_src[vmag_col], errors='coerce')
+                _plan_src = _plan_src[
+                    _mag_num.isna() |
+                    _mag_num.between(_vmag_range[0], _vmag_range[1], inclusive='both')
+                ]
+
+            # Filter: type/class
+            if type_col and type_col in _plan_src.columns and _sel_types is not None:
+                _plan_src = _plan_src[
+                    _plan_src[type_col].astype(str).isin(_sel_types)
+                ]
+
+            # Filter: discovery recency
+            if (disc_col and disc_col in _plan_src.columns
+                    and _disc_days is not None and _disc_days < 365):
+                _disc_parsed = pd.to_datetime(
+                    _plan_src[disc_col], errors='coerce', utc=True
+                )
+                _disc_cutoff = pd.Timestamp(
+                    datetime.now(tz=pytz.utc) - timedelta(days=_disc_days)
+                )
+                _plan_src = _plan_src[
+                    _disc_parsed.isna() | (_disc_parsed >= _disc_cutoff)
+                ]
+
+            # Filter: minimum set time
+            if '_set_datetime' in _plan_src.columns and _min_set_input is not None:
+                _min_set_dt = local_tz.localize(
+                    datetime.combine(start_time.date(), _min_set_input)
+                )
+                if _min_set_dt < start_time:
+                    _min_set_dt += timedelta(days=1)
+
+                def _passes_set_filter(set_dt):
+                    if pd.isnull(set_dt):
+                        return True
+                    try:
+                        return set_dt >= _min_set_dt
+                    except (TypeError, ValueError):
+                        return True
+
+                _plan_src = _plan_src[
+                    _plan_src['_set_datetime'].apply(_passes_set_filter)
+                ]
+
+            # Filter: Moon Status
+            if (_sel_moon is not None and 'Moon Status' in _plan_src.columns
+                    and len(_sel_moon) < len(_all_moon_statuses)):
+                _plan_src = _plan_src[
+                    _plan_src['Moon Status'].isin(_sel_moon)
+                ]
+
+            if _plan_src.empty:
+                st.warning("No observable targets match the selected filters.")
+            else:
+                _scheduled = build_night_plan(_plan_src, pri_col, dur_col)
+
+                if _scheduled.empty:
+                    st.warning("No targets matched after sorting.")
+                else:
+                    st.metric("Targets Planned", len(_scheduled))
+
+                    _plan_link_col = next(
+                        (c for c in _scheduled.columns if 'link' in c.lower()),
+                        link_col,
+                    )
+
+                    # Build display column list
+                    _plan_show = []
+                    for _c in [target_col, pri_col, 'Type',
+                               'Rise', 'Transit', 'Set', dur_col,
+                               vmag_col, ra_col, dec_col, 'Constellation',
+                               'Status', 'Moon Sep (°)', 'Moon Status',
+                               _plan_link_col]:
+                        if _c and _c in _scheduled.columns and _c not in _plan_show:
+                            _plan_show.append(_c)
+                    _plan_display = _scheduled[
+                        [c for c in _plan_show if c in _scheduled.columns]
+                    ].copy()
+
+                    # Column config
+                    _plan_cfg = {}
+                    if dur_col and dur_col in _plan_display.columns:
+                        _plan_cfg[dur_col] = st.column_config.NumberColumn(
+                            dur_col, format="%d min"
+                        )
+                    if 'Moon Sep (°)' in _plan_display.columns:
+                        _plan_cfg['Moon Sep (°)'] = st.column_config.TextColumn("Moon Sep (°)")
+                    if 'Moon Status' in _plan_display.columns:
+                        _plan_cfg['Moon Status'] = st.column_config.TextColumn("Moon Status")
+                    if _plan_link_col and _plan_link_col in _plan_display.columns:
+                        _plan_cfg[_plan_link_col] = st.column_config.TextColumn("Deep Link")
+
+                    # Priority row colouring
+                    if pri_col and pri_col in _plan_display.columns:
+                        def _plan_hl(row):
+                            v = str(row[pri_col]).upper().strip()
+                            if "URGENT" in v:
+                                s = "background-color:#ef5350;color:white;font-weight:bold"
+                            elif "HIGH" in v:
+                                s = "background-color:#ffb74d;color:black;font-weight:bold"
+                            elif "MEDIUM" in v:
+                                s = "background-color:#fff59d;color:black"
+                            elif "LOW" in v:
+                                s = "background-color:#c8e6c9;color:black"
+                            else:
+                                s = ""
+                            return [s] * len(row)
+                        st.dataframe(
+                            _plan_display.style.apply(_plan_hl, axis=1),
+                            hide_index=True, width="stretch",
+                            column_config=_plan_cfg,
+                        )
+                    else:
+                        st.dataframe(
+                            _plan_display, hide_index=True,
+                            width="stretch", column_config=_plan_cfg,
+                        )
+
+                    # Export buttons
+                    _dl1, _dl2 = st.columns(2)
+                    with _dl1:
+                        st.download_button(
+                            "📥 Download Plan (CSV)",
+                            data=_plan_display.to_csv(index=False).encode('utf-8'),
+                            file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key=f"{section_key}_csv_plan",
+                        )
+                    with _dl2:
+                        _pdf = generate_plan_pdf(
+                            _scheduled, start_time, night_end,
+                            target_col, _plan_link_col, dur_col, pri_col,
+                            ra_col, dec_col, vmag_col,
+                        )
+                        if _pdf:
+                            st.download_button(
+                                "📄 Download Plan (PDF)",
+                                data=_pdf,
+                                file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key=f"{section_key}_pdf_plan",
+                                help="PDF export of the plan.",
+                            )
+                        else:
+                            st.info("Install `reportlab` to enable PDF export.")
+
+
 COMETS_FILE = "comets.yaml"
 COMET_PENDING_FILE = "comet_pending_requests.txt"
 COMET_CATALOG_FILE = "comets_catalog.json"
@@ -1254,6 +1591,20 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                 display_dso_table(_df_sorted_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
 
+                with st.expander("📅 Night Plan Builder", expanded=False):
+                    _render_night_plan_builder(
+                        df_obs=df_obs_d,
+                        start_time=start_time,
+                        night_end=start_time + timedelta(minutes=duration),
+                        local_tz=local_tz,
+                        target_col="Name", ra_col="RA", dec_col="Dec",
+                        vmag_col="Magnitude", type_col="Type",
+                        csv_label="📊 All DSO (CSV)",
+                        csv_data=df_dsos,
+                        csv_filename=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
+                        section_key=f"dso_{category.lower().replace(' ', '_')}",
+                    )
+
             with tab_filt_d:
                 st.caption("Objects not meeting your filters (Altitude/Azimuth/Moon) during the observation window.")
                 if not df_filt_d.empty:
@@ -1421,6 +1772,18 @@ elif target_mode == "Planet (JPL Horizons)":
                     show_p = [c for c in display_cols_p if c in _df_sorted_p.columns]
                     st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
+
+                    with st.expander("📅 Night Plan Builder", expanded=False):
+                        _render_night_plan_builder(
+                            df_obs=df_obs_p,
+                            start_time=start_time,
+                            night_end=start_time + timedelta(minutes=duration),
+                            local_tz=local_tz,
+                            target_col="Name", ra_col="RA", dec_col="Dec",
+                            csv_label="📊 All Planets (CSV)",
+                            csv_filename="planets_visibility.csv",
+                            section_key="planet",
+                        )
                 else:
                     st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az {az_range}, Moon Sep > {min_moon_sep}°) during the selected window.")
 
@@ -1843,6 +2206,19 @@ elif target_mode == "Comet (JPL Horizons)":
                         unsafe_allow_html=True
                     )
 
+                    with st.expander("📅 Night Plan Builder", expanded=False):
+                        _render_night_plan_builder(
+                            df_obs=df_obs_c,
+                            start_time=start_time,
+                            night_end=start_time + timedelta(minutes=duration),
+                            local_tz=local_tz,
+                            target_col="Name", ra_col="RA", dec_col="Dec",
+                            pri_col="Priority",
+                            csv_label="📊 All Comets (CSV)",
+                            csv_filename="comets_visibility.csv",
+                            section_key="comet_mylist",
+                        )
+
                 with tab_filt_c:
                     st.caption("Comets not meeting your filters within the observation window.")
                     if not df_filt_c.empty:
@@ -2030,6 +2406,19 @@ elif target_mode == "Comet (JPL Horizons)":
                                 _df_sorted_cat[[c for c in _show_cols_cat if c in _df_sorted_cat.columns]],
                                 hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG
                             )
+
+                            with st.expander("📅 Night Plan Builder", expanded=False):
+                                _render_night_plan_builder(
+                                    df_obs=_df_obs_cat,
+                                    start_time=start_time,
+                                    night_end=start_time + timedelta(minutes=duration),
+                                    local_tz=local_tz,
+                                    target_col="Name", ra_col="RA", dec_col="Dec",
+                                    csv_label="📊 Catalog Comets (CSV)",
+                                    csv_data=_df_cat,
+                                    csv_filename="catalog_comets_visibility.csv",
+                                    section_key="comet_catalog",
+                                )
                         with _tab_filt_cat:
                             st.caption("Comets not meeting your filters within the observation window.")
                             if not _df_filt_cat.empty:
@@ -2452,6 +2841,19 @@ elif target_mode == "Asteroid (JPL Horizons)":
                     " = Unistellar Planetary Defense priority target",
                     unsafe_allow_html=True
                 )
+
+                with st.expander("📅 Night Plan Builder", expanded=False):
+                    _render_night_plan_builder(
+                        df_obs=df_obs_a,
+                        start_time=start_time,
+                        night_end=start_time + timedelta(minutes=duration),
+                        local_tz=local_tz,
+                        target_col="Name", ra_col="RA", dec_col="Dec",
+                        pri_col="Priority",
+                        csv_label="📊 All Asteroids (CSV)",
+                        csv_filename="asteroids_visibility.csv",
+                        section_key="asteroid",
+                    )
 
             with tab_filt_a:
                 st.caption("Asteroids not meeting your filters within the observation window.")
@@ -3005,300 +3407,20 @@ elif target_mode == "Cosmic Cataclysm":
             # ── Night Plan Builder ─────────────────────────────────────────────
             st.markdown("---")
             with st.expander("📅 Night Plan Builder", expanded=False):
-                _night_end = start_time + timedelta(minutes=duration)
-                st.caption(
-                    "Filter observable targets by priority, magnitude, event class, moon conditions, and more. "
-                    "Targets are sorted **URGENT → HIGH → LOW → unassigned**, "
-                    "then by set-time within each tier (things that set sooner go first)."
+                _render_night_plan_builder(
+                    df_obs=df_obs,
+                    start_time=start_time,
+                    night_end=start_time + timedelta(minutes=duration),
+                    local_tz=local_tz,
+                    target_col=target_col, ra_col=ra_col, dec_col=dec_col,
+                    pri_col=pri_col, dur_col=dur_col,
+                    vmag_col=vmag_col, type_col=type_col,
+                    disc_col=disc_col, link_col=link_col,
+                    csv_label="📊 All Alerts (CSV)",
+                    csv_data=df_alerts,
+                    csv_filename="unistellar_targets.csv",
+                    section_key="cosmic",
                 )
-
-                # ── Row 1: priority ────────────────────────────────────────────
-                _sel_pri = st.multiselect(
-                    "Include priority levels:",
-                    options=["URGENT", "HIGH", "LOW", "(unassigned)"],
-                    default=["URGENT", "HIGH", "LOW", "(unassigned)"],
-                    help=(
-                        "Deselect a level to exclude those targets.  "
-                        "'(unassigned)' catches targets with no priority label."
-                    ),
-                )
-
-                # ── Row 2: optional candidate-pool filters ─────────────────────
-                st.caption("**Refine candidate pool** *(optional — defaults include everything)*")
-                _fc1, _fc2, _fc3, _fc4, _fc5 = st.columns(5)
-
-                with _fc1:
-                    if vmag_col and not df_obs.empty and vmag_col in df_obs.columns:
-                        _vmag_numeric = pd.to_numeric(df_obs[vmag_col], errors='coerce').dropna()
-                        if not _vmag_numeric.empty:
-                            _vmag_lo = float(_vmag_numeric.min())
-                            _vmag_hi = float(_vmag_numeric.max())
-                            _vmag_range = st.slider(
-                                f"Magnitude ({vmag_col})",
-                                min_value=round(_vmag_lo, 1),
-                                max_value=round(_vmag_hi, 1),
-                                value=(round(_vmag_lo, 1), round(_vmag_hi, 1)),
-                                step=0.1,
-                                help="Lower magnitude = brighter. Restrict range to exclude targets that are too faint or too bright for your setup.",
-                            )
-                        else:
-                            _vmag_range = None
-                    else:
-                        _vmag_range = None
-                        st.caption("*Vmag: not in data*")
-
-                with _fc2:
-                    if type_col and not df_obs.empty and type_col in df_obs.columns:
-                        _all_types = sorted(
-                            df_obs[type_col].dropna().astype(str).unique().tolist()
-                        )
-                        _sel_types = st.multiselect(
-                            f"Event class ({type_col})",
-                            options=_all_types,
-                            default=_all_types,
-                            help="Filter by event class, e.g. SN, GRB, VS. Useful for focusing on a specific science case.",
-                        )
-                    else:
-                        _sel_types = None
-                        st.caption("*Type/class: not in data*")
-
-                with _fc3:
-                    if disc_col and not df_obs.empty and disc_col in df_obs.columns:
-                        _disc_days = st.slider(
-                            "Discovered within last N days",
-                            min_value=1,
-                            max_value=365,
-                            value=365,
-                            help=(
-                                "365 = no restriction. Lower to focus on fresh events — "
-                                "e.g. a new SN brightens fast after discovery so early coverage matters most."
-                            ),
-                        )
-                    else:
-                        _disc_days = None
-                        st.caption("*Discovery date: not in data*")
-
-                with _fc4:
-                    _min_set_input = st.time_input(
-                        "Sets no earlier than",
-                        value=start_time.time(),
-                        help=(
-                            "Exclude targets that set before this time. "
-                            "Default = session start, so nothing is pre-filtered. "
-                            "Raise it to drop targets that will set mid-session."
-                        ),
-                    )
-
-                with _fc5:
-                    _all_moon_statuses = ["🌑 Dark Sky", "✅ Safe", "⚠️ Caution", "⛔ Avoid"]
-                    if 'Moon Status' in df_obs.columns:
-                        _sel_moon = st.multiselect(
-                            "Moon Status",
-                            options=_all_moon_statuses,
-                            default=_all_moon_statuses,
-                            help=(
-                                "Filter by Moon Status. Deselect '⛔ Avoid' to "
-                                "exclude targets too close to the Moon."
-                            ),
-                        )
-                    else:
-                        _sel_moon = None
-                        st.caption("*Moon Status: not in data*")
-
-                # ── Row 3: action buttons ──────────────────────────────────────
-                _bc1, _bc2 = st.columns(2)
-                with _bc1:
-                    _do_build = st.button(
-                        "🗓 Build Plan", type="primary", use_container_width=True
-                    )
-                with _bc2:
-                    st.download_button(
-                        "📊 All Alerts (CSV)",
-                        data=df_alerts.to_csv(index=False).encode('utf-8'),
-                        file_name="unistellar_targets.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                        help="Download the full unfiltered alert list as CSV.",
-                    )
-
-                if _do_build:
-                    if df_obs.empty:
-                        st.warning("No observable targets to plan.")
-                    else:
-                        _plan_src = df_obs.copy()
-
-                        # ── Filter: priority ──────────────────────────────────
-                        if pri_col and pri_col in _plan_src.columns and _sel_pri:
-                            def _matches_pri(val):
-                                v = str(val).upper().strip()
-                                for p in _sel_pri:
-                                    if p == "(unassigned)" and v in ('', 'NAN', 'NONE', 'N/A'):
-                                        return True
-                                    elif p != "(unassigned)" and p in v:
-                                        return True
-                                return False
-                            _plan_src = _plan_src[_plan_src[pri_col].apply(_matches_pri)]
-
-                        # ── Filter: magnitude ─────────────────────────────────
-                        if vmag_col and vmag_col in _plan_src.columns and _vmag_range is not None:
-                            _mag_num = pd.to_numeric(_plan_src[vmag_col], errors='coerce')
-                            # Keep rows within range OR where magnitude is unknown
-                            _plan_src = _plan_src[
-                                _mag_num.isna() |
-                                _mag_num.between(_vmag_range[0], _vmag_range[1], inclusive='both')
-                            ]
-
-                        # ── Filter: event class ───────────────────────────────
-                        if type_col and type_col in _plan_src.columns and _sel_types is not None:
-                            _plan_src = _plan_src[
-                                _plan_src[type_col].astype(str).isin(_sel_types)
-                            ]
-
-                        # ── Filter: discovery recency ─────────────────────────
-                        if (disc_col and disc_col in _plan_src.columns
-                                and _disc_days is not None and _disc_days < 365):
-                            _disc_parsed = pd.to_datetime(
-                                _plan_src[disc_col], errors='coerce', utc=True
-                            )
-                            _disc_cutoff = pd.Timestamp(
-                                datetime.now(tz=pytz.utc) - timedelta(days=_disc_days)
-                            )
-                            # Keep rows discovered within window OR unparseable dates
-                            _plan_src = _plan_src[
-                                _disc_parsed.isna() | (_disc_parsed >= _disc_cutoff)
-                            ]
-
-                        # ── Filter: minimum set time ──────────────────────────
-                        if '_set_datetime' in _plan_src.columns:
-                            _min_set_dt = local_tz.localize(
-                                datetime.combine(start_time.date(), _min_set_input)
-                            )
-                            # If the chosen time is earlier than start, it refers to next day
-                            if _min_set_dt < start_time:
-                                _min_set_dt += timedelta(days=1)
-
-                            def _passes_set_filter(set_dt):
-                                if pd.isnull(set_dt):   # Always Up / no set time
-                                    return True
-                                try:
-                                    return set_dt >= _min_set_dt
-                                except (TypeError, ValueError):
-                                    return True
-
-                            _plan_src = _plan_src[
-                                _plan_src['_set_datetime'].apply(_passes_set_filter)
-                            ]
-
-                        # ── Filter: Moon Status ───────────────────────────────
-                        if (_sel_moon is not None and 'Moon Status' in _plan_src.columns
-                                and len(_sel_moon) < len(_all_moon_statuses)):
-                            _plan_src = _plan_src[
-                                _plan_src['Moon Status'].isin(_sel_moon)
-                            ]
-
-                        if _plan_src.empty:
-                            st.warning("No observable targets match the selected filters.")
-                        else:
-                            _scheduled = build_night_plan(
-                                _plan_src, pri_col, dur_col,
-                            )
-
-                            if _scheduled.empty:
-                                st.warning("No targets matched after sorting.")
-                            else:
-                                st.metric("Targets Planned", len(_scheduled))
-
-                                # Re-detect link column directly from _scheduled so we never
-                                # miss it due to outer-scope variable being stale or None.
-                                _plan_link_col = next(
-                                    (c for c in _scheduled.columns
-                                     if 'link' in c.lower()),
-                                    link_col,  # fallback to outer detection
-                                )
-
-                                # Build display table (explicit column list, no hidden _cols)
-                                _plan_show = []
-                                for _c in [target_col, pri_col, 'Type',
-                                           'Rise', 'Transit', 'Set', dur_col,
-                                           vmag_col, ra_col, dec_col, 'Constellation',
-                                           'Status', 'Moon Sep (°)', 'Moon Status',
-                                           _plan_link_col]:
-                                    if _c and _c in _scheduled.columns and _c not in _plan_show:
-                                        _plan_show.append(_c)
-                                _plan_display = _scheduled[
-                                    [c for c in _plan_show if c in _scheduled.columns]
-                                ].copy()
-
-                                # Column config
-                                _plan_cfg = {}
-                                if dur_col and dur_col in _plan_display.columns:
-                                    _plan_cfg[dur_col] = st.column_config.NumberColumn(
-                                        dur_col, format="%d min"
-                                    )
-                                if 'Moon Sep (°)' in _plan_display.columns:
-                                    _plan_cfg['Moon Sep (°)'] = st.column_config.TextColumn("Moon Sep (°)")
-                                if 'Moon Status' in _plan_display.columns:
-                                    _plan_cfg['Moon Status'] = st.column_config.TextColumn("Moon Status")
-                                # Show the raw URL as text (unistellar:// deeplinks are
-                                # not http so LinkColumn would hide the actual URL)
-                                if _plan_link_col and _plan_link_col in _plan_display.columns:
-                                    _plan_cfg[_plan_link_col] = st.column_config.TextColumn(
-                                        "Deep Link"
-                                    )
-
-                                # Priority row colouring
-                                if pri_col and pri_col in _plan_display.columns:
-                                    def _plan_hl(row):
-                                        v = str(row[pri_col]).upper().strip()
-                                        if "URGENT" in v:
-                                            s = "background-color:#ef5350;color:white;font-weight:bold"
-                                        elif "HIGH" in v:
-                                            s = "background-color:#ffb74d;color:black;font-weight:bold"
-                                        elif "MEDIUM" in v:
-                                            s = "background-color:#fff59d;color:black"
-                                        elif "LOW" in v:
-                                            s = "background-color:#c8e6c9;color:black"
-                                        else:
-                                            s = ""
-                                        return [s] * len(row)
-                                    st.dataframe(
-                                        _plan_display.style.apply(_plan_hl, axis=1),
-                                        hide_index=True, width="stretch",
-                                        column_config=_plan_cfg,
-                                    )
-                                else:
-                                    st.dataframe(
-                                        _plan_display, hide_index=True,
-                                        width="stretch", column_config=_plan_cfg,
-                                    )
-
-                                # Export buttons
-                                _dl1, _dl2 = st.columns(2)
-                                with _dl1:
-                                    st.download_button(
-                                        "📥 Download Plan (CSV)",
-                                        data=_plan_display.to_csv(index=False).encode('utf-8'),
-                                        file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.csv",
-                                        mime="text/csv",
-                                        use_container_width=True,
-                                    )
-                                with _dl2:
-                                    _pdf = generate_plan_pdf(
-                                        _scheduled, start_time, _night_end,
-                                        target_col, _plan_link_col, dur_col, pri_col,
-                                        ra_col, dec_col, vmag_col,
-                                    )
-                                    if _pdf:
-                                        st.download_button(
-                                            "📄 Download Plan (PDF)",
-                                            data=_pdf,
-                                            file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.pdf",
-                                            mime="application/pdf",
-                                            use_container_width=True,
-                                            help="PDF has clickable deeplinks — load it before connecting to telescope WiFi.",
-                                        )
-                                    else:
-                                        st.info("Install `reportlab` to enable PDF export.")
 
             st.markdown("---")
             st.subheader("Select Target for Trajectory")

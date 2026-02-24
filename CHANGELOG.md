@@ -4,6 +4,39 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-02-24 — Night Plan Builder UI polish (layout + dynamic priorities)
+
+**Fix 1 — Two-row filter layout:** Sections with 4+ filters (DSO, Cosmic) had cramped columns with truncated multiselect labels. Filters are now split into two rows: Row A for data-specific filters (Magnitude, Type, Discovery) and Row B for Set time + Moon Status. DSO gets 2+2, Cosmic gets 3+2, simpler sections keep a single 2-column row.
+
+**Fix 2 — Dynamic priority options:** The priority multiselect was hardcoded to URGENT/HIGH/LOW/(unassigned), but Comet and Asteroid sections only use `⭐ PRIORITY` (binary flag). Now detects actual priority values from the DataFrame. Comets/Asteroids show `[⭐ PRIORITY, (unassigned)]`. Cosmic shows `[URGENT, HIGH, LOW, (unassigned)]`. Caption text adapts accordingly.
+
+**Files changed:** `app.py`, `CLAUDE.md`, `CHANGELOG.md`.
+
+**Branch:** `feature/night-plan-all-sections`
+
+---
+
+## 2026-02-24 — Night Plan Builder expanded to all sections
+
+**Change:** The Night Plan Builder (previously Cosmic-only) now appears in every section: DSO, Planet, Comet My List, Comet Catalog, Asteroid, and Cosmic. Each section has its own collapsible expander inside the Observable tab.
+
+**Implementation:** Extracted ~297 lines of inline Cosmic Night Plan Builder code into a shared `_render_night_plan_builder()` function. The function adapts its filter layout dynamically based on which columns are available:
+- **DSO:** Magnitude slider + Type multiselect + Set time + Moon Status (4 filter columns)
+- **Planet:** Set time + Moon Status (2 filter columns)
+- **Comet My List / Asteroid:** Priority multiselect + Set time + Moon Status (2 filter columns + priority row)
+- **Comet Catalog:** Set time + Moon Status (2 filter columns)
+- **Cosmic:** All 5 filters (unchanged behaviour)
+
+All sections support CSV + PDF export. Priority row highlighting works in Comet, Asteroid, and Cosmic sections.
+
+**Widget key uniqueness:** Each call site passes a `section_key` parameter (e.g. `"dso_stars"`, `"planet"`, `"comet_mylist"`) that prefixes all Streamlit widget keys to prevent duplicate key errors.
+
+**Files changed:** `app.py`, `CLAUDE.md`, `CHANGELOG.md`.
+
+**Branch:** `feature/night-plan-all-sections`
+
+---
+
 ## 2026-02-24 — Migrate scrapers from Selenium to Scrapling + add priority removal detection
 
 **Change 1 — Scraper migration:** Replaced Selenium + webdriver-manager with [Scrapling](https://github.com/D4Vinci/Scrapling) (`StealthyFetcher`) in `backend/scrape.py`. Scrapling uses Patchright (Playwright fork) — no more ChromeDriver version mismatches. Added `_deep_text()` helper because Scrapling's `.text` only returns direct text nodes (Selenium's `.text` returns all descendant text). Tested side-by-side: identical output across all 3 scrapers (transient events 78/78 rows, comet missions 7/7, asteroid missions 2/2). Scrapling also bypasses Cloudflare browser checks that block headless Selenium.

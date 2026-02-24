@@ -215,19 +215,73 @@ Three check times: start / mid / end of the observation window. `_min_sep` (wors
 
 Note: thresholds do not scale with illumination above 15% — a full moon at 65° shows Safe. May be refined later.
 
-### 8. Night Plan Builder (Cosmic Cataclysm section)
+### 8. Night Plan Builder (all sections)
 
-The Night Plan Builder lives in a collapsible `st.expander` after the Observable / Unobservable tabs. It is **Cosmic-section-only** — other modes do not have it.
+Every section has a Night Plan Builder in a collapsible `st.expander("📅 Night Plan Builder")` inside the Observable tab. The builder filters observable targets, sorts them by priority + set-time, and exports as CSV/PDF.
 
-#### Two helper functions (module-level, before the Cosmic section)
+#### Three helper functions (module-level)
 
 **`build_night_plan(df_obs, pri_col, dur_col) → DataFrame`**
-
-Sorts observable targets URGENT → HIGH → LOW → unassigned, then by ascending `_set_datetime` within each tier. Returns a priority-sorted DataFrame — the user decides when to observe each target (no Obs Start/End scheduling).
+Sorts observable targets URGENT → HIGH → LOW → unassigned, then by ascending `_set_datetime` within each tier. Returns a priority-sorted DataFrame — the user decides when to observe each target.
 
 **`generate_plan_pdf(df_plan, night_start, night_end, target_col, link_col, dur_col, pri_col, ra_col, dec_col, vmag_col=None) → bytes | None`**
+Requires `reportlab`. Returns landscape A4 PDF bytes. Re-detects link column internally. Header row `#4472C4` blue. Priority rows colour-coded. Link column renders raw URL as plain text.
 
-Requires `reportlab` (in `requirements.txt`). Returns landscape A4 PDF bytes. Re-detects the link column from `df_plan.columns` internally (`'link' in c.lower()`) so it is never lost if the caller passes `link_col=None`. Header row uses `#4472C4` (medium blue) for print readability. Priority rows are colour-coded. The link column renders the raw URL (e.g. `unistellar://science/transient?…`) as plain text so the full deeplink is visible and copyable.
+**`_render_night_plan_builder(df_obs, start_time, night_end, local_tz, ...) → None`**
+Shared UI function that renders the full Night Plan Builder inside an already-open `st.expander`. Adapts filter layout to available columns.
+
+```python
+_render_night_plan_builder(
+    df_obs, start_time, night_end, local_tz,
+    target_col="Name", ra_col="RA", dec_col="Dec",
+    pri_col=None, dur_col=None, vmag_col=None,
+    type_col=None, disc_col=None, link_col=None,
+    csv_label="All Targets (CSV)", csv_data=None,
+    csv_filename="targets.csv", section_key="",
+)
+```
+
+| Parameter | Purpose |
+|---|---|
+| `pri_col` | Priority column — shows Row 1 priority multiselect + priority highlighting |
+| `vmag_col` | Magnitude column — shows magnitude slider filter |
+| `type_col` | Type/class column — shows type multiselect filter |
+| `disc_col` | Discovery date column — shows discovery recency slider |
+| `link_col` | Link column — shown in table + PDF as TextColumn |
+| `dur_col` | Duration column — formatted as `%d min` |
+| `csv_data` | DataFrame for "All" CSV button (defaults to `df_obs` if `None`) |
+| `section_key` | Unique prefix for Streamlit widget keys (prevents duplicate key errors) |
+
+#### Adaptive filter layout (two-row split)
+
+Filters are split across two rows to avoid cramped columns:
+
+- **Row A** (data-specific filters): Magnitude slider, Type multiselect, Discovery recency — only shown if the section has these columns. Sections without data-specific filters skip this row entirely.
+- **Row B** (always present): Set time + Moon Status — every section gets this row.
+
+| Section | Row A | Row B | Priority row |
+|---|---|---|---|
+| DSO | Magnitude + Type (2 cols) | Set time + Moon Status (2 cols) | — |
+| Planet | — | Set time + Moon Status (2 cols) | — |
+| Comet My List | — | Set time + Moon Status (2 cols) | ⭐ PRIORITY / (unassigned) |
+| Comet Catalog | — | Set time + Moon Status (2 cols) | — |
+| Asteroid | — | Set time + Moon Status (2 cols) | ⭐ PRIORITY / (unassigned) |
+| Cosmic | Magnitude + Type + Discovery (3 cols) | Set time + Moon Status (2 cols) | URGENT / HIGH / LOW / (unassigned) |
+
+#### Dynamic priority detection
+
+The priority multiselect options are built from actual DataFrame values, not hardcoded. Comets and Asteroids use `⭐ PRIORITY` (binary flag from `unistellar_priority`), while Cosmic uses tiered URGENT/HIGH/LOW labels from `targets.yaml`. The caption text adapts: tiered sections show "URGENT → HIGH → LOW → unassigned", non-tiered sections show "Priority targets are listed first".
+
+#### Per-section call sites
+
+| Section | `section_key` | `pri_col` | `vmag_col` | `type_col` | `disc_col` | `link_col` |
+|---|---|---|---|---|---|---|
+| DSO | `"dso_{category}"` | — | `"Magnitude"` | `"Type"` | — | — |
+| Planet | `"planet"` | — | — | — | — | — |
+| Comet My List | `"comet_mylist"` | `"Priority"` | — | — | — | — |
+| Comet Catalog | `"comet_catalog"` | — | — | — | — | — |
+| Asteroid | `"asteroid"` | `"Priority"` | — | — | — | — |
+| Cosmic | `"cosmic"` | `pri_col` | `vmag_col` | `type_col` | `disc_col` | `link_col` |
 
 #### Column detection in the Cosmic section
 
@@ -242,36 +296,17 @@ disc_col  = next((c for c in df_display.columns if 'disc' in c.lower() or ('date
 
 **Important:** `link_col` matches `"Link"`, `"DeepLink"`, `"Deep Link"` etc. The Unistellar table names this column `"Link"`. Do **not** change the pattern back to `'deeplink'`.
 
-#### Night Plan Builder UI layout
-
-```
-Row 1 — Priority multiselect (full width)
-Row 2 — Refine candidate pool (5 columns):
-         [Magnitude slider] [Event class multiselect] [Discovered last N days slider] [Sets no earlier than time input] [Moon Status multiselect]
-Row 3 — [🗓 Build Plan (primary)] [📊 All Alerts CSV]
-```
-
-Priority multiselect options: `["URGENT", "HIGH", "LOW", "(unassigned)"]` — MEDIUM has been removed from assignable priorities. Existing rows with MEDIUM still display with yellow highlighting for backward compatibility.
-
-After clicking Build Plan, six sequential filters are applied to `df_obs` before sorting:
-1. Priority match
-2. Magnitude range (`pd.to_numeric`, unknown magnitudes pass through)
-3. Event class (`isin` match)
-4. Discovery recency (`pd.to_datetime(..., utc=True)` vs cutoff; unknown dates pass through)
-5. Minimum set time (compares `_set_datetime` against a tz-aware datetime; `pd.isnull` targets — Always Up — always pass)
-6. Moon Status (`isin` match against selected statuses; only applied when user deselects at least one status)
-
-The plan table shows: `Name · Priority · Type · Rise · Transit · Set · Duration · Vmag · RA · Dec · Constellation · Status · Moon Sep (°) · Moon Status · Link`.
-
-A single "Targets Planned" metric is shown above the table. There are no Obs Start/End columns, Scheduled Time, or Remaining Window metrics — the user decides when to observe each target.
-
-The link column is configured as `TextColumn` (not `LinkColumn`) in **both** the observable table (`display_styled_table`) and the Night Plan Builder table. `LinkColumn` only handles `http/https` URLs — using it for `unistellar://` deep links opens a blank page. `TextColumn` displays the full URL as plain text so it is visible and copyable.
-
-Inside the Night Plan Builder, `_plan_link_col` is re-detected directly from `_scheduled.columns` (`'link' in c.lower()`) before building the display table and the PDF — this is the authoritative source, not the outer `link_col` variable.
+#### Filter chain (6 filters, each guarded by column existence)
+1. Priority match (if `pri_col`)
+2. Magnitude range (if `vmag_col`)
+3. Type/class (if `type_col`)
+4. Discovery recency (if `disc_col`)
+5. Minimum set time (always — uses `_set_datetime`)
+6. Moon Status (always if column exists — only filters when user deselects a status)
 
 #### Export formats
 - **CSV** — `_plan_display.to_csv()` (all visible columns, no hidden `_` columns)
-- **PDF** — `generate_plan_pdf(_scheduled, ...)` — passes the full `_scheduled` DataFrame (including hidden cols needed for PDF column detection), with `_plan_link_col` as the link argument
+- **PDF** — `generate_plan_pdf(_scheduled, ...)` — passes the full `_scheduled` DataFrame
 
 ### 9. Orbit Type Label Mapping (Explore Catalog)
 
@@ -354,8 +389,9 @@ Per-thread `set_event_loop()` does NOT work because Playwright creates its own e
 | `get_asteroid_summary()` | `app.py` | Batch asteroid visibility (cached) |
 | `get_dso_summary()` | `app.py` | Batch DSO visibility (cached, no API) |
 | `get_planet_summary()` | `app.py` | Batch planet visibility |
-| `build_night_plan()` | `app.py` | Build sequential night observation schedule |
+| `build_night_plan()` | `app.py` | Sort targets by priority + set-time for night plan |
 | `generate_plan_pdf()` | `app.py` | Render night plan as downloadable PDF |
+| `_render_night_plan_builder()` | `app.py` | Shared Night Plan Builder UI (all sections) |
 | `load_comet_catalog()` | `app.py` | Load comets_catalog.json |
 | `load_comets_config()` | `app.py` | Load + parse comets.yaml |
 | `save_comets_config()` | `app.py` | Save comets.yaml + GitHub push |
