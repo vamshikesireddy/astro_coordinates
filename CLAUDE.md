@@ -215,6 +215,24 @@ Three check times: start / mid / end of the observation window. `_min_sep` (wors
 
 Note: thresholds do not scale with illumination above 15% — a full moon at 65° shows Safe. May be refined later.
 
+### 7b. Sidebar Moon Panel
+
+Displayed under `st.sidebar.markdown("---")` in the main setup block (after the filter sliders). Computed once at app load whenever `lat`/`lon` are set.
+
+**Fields shown:**
+| Field | Source |
+|---|---|
+| Illumination | `0.5 * (1 - cos(elongation))` using `get_sun` + `get_moon` |
+| Altitude | `moon_loc.transform_to(AltAz(...)).alt.degree` |
+| Direction | `azimuth_to_compass(moon_az_deg)` + raw degrees |
+| RA | `_moon_sky.ra.to_string(unit=u.hour, sep='hms', precision=0)` e.g. `14h32m15s` |
+| Dec | `_moon_sky.dec.to_string(sep='dms', precision=0)` e.g. `+23d45m12s` |
+| Rise | `_moon_plan['_rise_datetime'].strftime("%H:%M")` (local time) |
+| Transit | `_moon_plan['_transit_datetime'].strftime("%H:%M")` (local time) |
+| Set | `_moon_plan['_set_datetime'].strftime("%H:%M")` (local time) |
+
+**Implementation note:** `moon_loc` from `get_moon()` carries a 3D GCRS distance. A plain `SkyCoord` is derived from it — `_moon_sky = SkyCoord(ra=moon_loc.ra, dec=moon_loc.dec, frame='icrs')` — before passing to `calculate_planning_info()` and for RA/Dec string formatting. Rise/transit/set use the same `calculate_planning_info()` function as all other targets. "Always Up" is handled gracefully; unavailable times fall back to `—`.
+
 ### 8. Night Plan Builder (all sections)
 
 Every section has a Night Plan Builder in a collapsible `st.expander("📅 Night Plan Builder")` inside the Observable tab. The builder filters observable targets, sorts them by priority + set-time, and exports as CSV/PDF.
