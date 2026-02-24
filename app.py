@@ -37,7 +37,7 @@ except ImportError:
 
 # Import from local modules
 from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
-from backend.core import compute_trajectory, calculate_planning_info, azimuth_to_compass
+from backend.core import compute_trajectory, calculate_planning_info, azimuth_to_compass, moon_sep_deg
 from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_comets, scrape_unistellar_priority_asteroids
 
 # Suppress Astropy warnings about coordinate frame transformations (Geocentric vs Topocentric)
@@ -84,7 +84,7 @@ def get_planet_summary(lat, lon, start_time):
             
             moon_sep = 0.0
             if moon_loc:
-                moon_sep = sky_coord.separation(moon_loc).degree
+                moon_sep = moon_sep_deg(sky_coord, moon_loc)
             
             row = {
                 "Name": p_name,
@@ -635,7 +635,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
         try:
             _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             details = calculate_planning_info(sky_coord, location, start_time)
-            moon_sep = sky_coord.separation(moon_loc_inner).degree if moon_loc_inner else 0.0
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
             row = {
                 "Name": comet_name,
                 "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
@@ -745,7 +745,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
         try:
             _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             details = calculate_planning_info(sky_coord, location, start_time)
-            moon_sep = sky_coord.separation(moon_loc_inner).degree if moon_loc_inner else 0.0
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
             row = {
                 "Name": asteroid_name,
                 "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
@@ -807,7 +807,7 @@ def get_dso_summary(lat, lon, start_time, dso_tuple):
         try:
             sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
             details = calculate_planning_info(sky_coord, location, start_time)
-            moon_sep = sky_coord.separation(moon_loc_inner).degree if moon_loc_inner else 0.0
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
             row = {
                 "Name": d_name,
                 "Common Name": common_name,
@@ -1184,8 +1184,8 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                             moon_locs_chk = [get_moon(Time(t), location_d) for t in check_times]
                         except Exception:
                             moon_locs_chk = [moon_loc] * 3
-                    _seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
-                    _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _seps = [moon_sep_deg(sc, ml) for ml in moon_locs_chk] if moon_locs_chk else []
+                    _min_sep = min(_seps) if _seps else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
                     _max_sep = max(_seps) if _seps else _min_sep
                     moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                     moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
@@ -1196,7 +1196,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                         for i_t, t_chk in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_d))
                             if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
-                                sep_ok = (not moon_locs_chk) or (sc.separation(moon_locs_chk[i_t]).degree >= min_moon_sep)
+                                sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
                                     break
@@ -1360,8 +1360,8 @@ elif target_mode == "Planet (JPL Horizons)":
                             moon_locs = [get_moon(Time(t), location) for t in check_times]
                         except Exception:
                             moon_locs = [moon_loc] * 3
-                    _seps = [sc.separation(ml).degree for ml in moon_locs] if moon_locs else []
-                    _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _seps = [moon_sep_deg(sc, ml) for ml in moon_locs] if moon_locs else []
+                    _min_sep = min(_seps) if _seps else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
                     _max_sep = max(_seps) if _seps else _min_sep
                     moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                     moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
@@ -1372,7 +1372,7 @@ elif target_mode == "Planet (JPL Horizons)":
                         for i, t_check in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_check), location=location))
                             if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
-                                sep_ok = (not moon_locs) or (sc.separation(moon_locs[i]).degree >= min_moon_sep)
+                                sep_ok = (not moon_locs) or (moon_sep_deg(sc, moon_locs[i]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
                                     break
@@ -1718,8 +1718,8 @@ elif target_mode == "Comet (JPL Horizons)":
                                 moon_locs_chk = [get_moon(Time(t), location_c) for t in check_times]
                             except Exception:
                                 moon_locs_chk = [moon_loc] * 3
-                        _seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
-                        _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                        _seps = [moon_sep_deg(sc, ml) for ml in moon_locs_chk] if moon_locs_chk else []
+                        _min_sep = min(_seps) if _seps else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
                         _max_sep = max(_seps) if _seps else _min_sep
                         moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                         moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
@@ -1730,7 +1730,7 @@ elif target_mode == "Comet (JPL Horizons)":
                             for i, t_chk in enumerate(check_times):
                                 aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_c))
                                 if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
-                                    sep_ok = (not moon_locs_chk) or (sc.separation(moon_locs_chk[i]).degree >= min_moon_sep)
+                                    sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i]) >= min_moon_sep)
                                     if sep_ok:
                                         obs, reason = True, ""
                                         break
@@ -2287,8 +2287,8 @@ elif target_mode == "Asteroid (JPL Horizons)":
                             moon_locs_chk = [get_moon(Time(t), location_a) for t in check_times]
                         except Exception:
                             moon_locs_chk = [moon_loc] * 3
-                    _seps = [sc.separation(ml).degree for ml in moon_locs_chk] if moon_locs_chk else []
-                    _min_sep = min(_seps) if _seps else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _seps = [moon_sep_deg(sc, ml) for ml in moon_locs_chk] if moon_locs_chk else []
+                    _min_sep = min(_seps) if _seps else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
                     _max_sep = max(_seps) if _seps else _min_sep
                     moon_sep_list.append(f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–")
                     moon_status_list.append(get_moon_status(moon_illum, _min_sep) if moon_loc else "")
@@ -2299,7 +2299,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
                         for i_t, t_chk in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_a))
                             if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
-                                sep_ok = (not moon_locs_chk) or (sc.separation(moon_locs_chk[i_t]).degree >= min_moon_sep)
+                                sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
                                     break
@@ -2726,8 +2726,8 @@ elif target_mode == "Cosmic Cataclysm":
                             moon_locs_dynamic = [moon_loc] * 3
 
                     # Moon Sep = range across window (min–max)
-                    _seps_dyn = [sc.separation(ml).degree for ml in moon_locs_dynamic] if moon_locs_dynamic else []
-                    moon_sep = min(_seps_dyn) if _seps_dyn else (sc.separation(moon_loc).degree if moon_loc else 0.0)
+                    _seps_dyn = [moon_sep_deg(sc, ml) for ml in moon_locs_dynamic] if moon_locs_dynamic else []
+                    moon_sep = min(_seps_dyn) if _seps_dyn else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
                     _moon_sep_max = max(_seps_dyn) if _seps_dyn else moon_sep
                     moon_status = get_moon_status(moon_illum, moon_sep) if moon_loc else ""
 
@@ -2750,7 +2750,7 @@ elif target_mode == "Cosmic Cataclysm":
                             if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
                                 # Check Moon dynamically
                                 if moon_locs_dynamic:
-                                    sep_dyn = sc.separation(moon_locs_dynamic[i]).degree
+                                    sep_dyn = moon_sep_deg(sc, moon_locs_dynamic[i])
                                     if sep_dyn >= min_moon_sep:
                                         passed_checks = True
                                         break
@@ -3308,7 +3308,7 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
             moon_status_text = f"{_ms_min:.1f}°–{_ms_max:.1f}° ({status})"
     elif moon_loc and sky_coord:
         # Fallback to single start-time value if trajectory Moon Sep unavailable
-        sep = sky_coord.separation(moon_loc).degree
+        sep = moon_sep_deg(sky_coord, moon_loc)
         current_moon_sep = sep
         if sep < min_moon_sep:
             st.warning(f"⚠️ **Moon Warning:** Target is {sep:.1f}° from the Moon (Limit: {min_moon_sep}°).")

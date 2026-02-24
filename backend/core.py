@@ -1,4 +1,4 @@
-from astropy.coordinates import AltAz
+from astropy.coordinates import AltAz, SkyCoord
 from astropy.time import Time
 from astropy import units as u
 import pytz
@@ -11,6 +11,19 @@ except ImportError:
     from astropy.coordinates import get_body
     def _get_moon(time, location=None, ephemeris=None):
         return get_body("moon", time, location, ephemeris=ephemeris)
+
+
+def moon_sep_deg(target_coord, moon_coord):
+    """Angular separation in degrees between a target and the Moon.
+
+    get_body('moon') returns a 3D GCRS coordinate (with distance).
+    Calling target.separation(moon) across ICRS↔GCRS with 3D coords
+    produces wrong results due to non-rotation transformation artifacts.
+    Stripping the distance turns it into a direction-only coordinate,
+    giving the correct great-circle angular separation.
+    """
+    moon_dir = SkyCoord(ra=moon_coord.ra, dec=moon_coord.dec, frame=moon_coord.frame)
+    return target_coord.separation(moon_dir).degree
 
 def azimuth_to_compass(az):
     directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
@@ -45,7 +58,7 @@ def compute_trajectory(sky_coord, location, start_time_local, duration_minutes=2
 
         try:
             moon_sky = _get_moon(time_utc, location)
-            moon_sep_val = round(target_coord.separation(moon_sky).degree, 1)
+            moon_sep_val = round(moon_sep_deg(target_coord, moon_sky), 1)
         except Exception:
             moon_sep_val = None
 

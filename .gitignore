@@ -25,5 +25,8 @@ Thumbs.db
 
 test/*
 
+# Temporary investigation files
+temp/
+
 # Claude Code local state (not needed in repo)
 .claude/
