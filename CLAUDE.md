@@ -99,14 +99,16 @@ alt.Chart(transit_data).mark_text(
 )
 ```
 
-### 5. Gantt Chart Sort Labels and Priority Sorting
+### 5. Gantt Chart Sort Labels, Priority Sorting, and Table Sync
 
-`plot_visibility_timeline(df, obs_start, obs_end, default_sort_label, priority_col)` accepts two optional parameters to control the fourth sort radio button (the section-specific option):
+`plot_visibility_timeline(df, obs_start, obs_end, default_sort_label, priority_col)` accepts two optional parameters to control the fourth sort radio button (the section-specific option) and **returns the selected sort option string** (e.g. `"Earliest Set"`, `"Priority Order"`).
 
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
 | `default_sort_label` | `str` | `"Default Order"` | Label shown for the fourth sort option |
 | `priority_col` | `str \| None` | `None` | Column name used to rank rows when the fourth sort is active |
+
+**Return value:** `str | None` — the selected radio button label, or `None` if the chart had no data (empty `chart_data`).
 
 The first three sort options are always present: **Earliest Set**, **Earliest Rise**, **Earliest Transit**. The fourth option is section-specific and controlled by these parameters.
 
@@ -127,6 +129,28 @@ When `priority_col` is provided and the fourth sort is active, rows are ranked:
 - "Always Up" objects are **not** pushed to the bottom for this sort (they stay in priority-ranked position)
 
 **Priority Legend placement:** Legends appear **below** the dataframe (not between chart and table) so they are visually associated with the table rows, not the Gantt chart. This applies to the Comet, Asteroid, and Cosmic sections.
+
+#### Table–Chart Sort Sync
+
+The overview table below the Gantt chart reorders to match the chart's sort selection. This is achieved by:
+
+1. `plot_visibility_timeline()` returns the `sort_option` string
+2. `_sort_df_like_chart(df, sort_option, priority_col=None)` reorders the DataFrame accordingly
+3. The sorted DataFrame is passed to the display helper (or `st.dataframe()` directly)
+
+```python
+_chart_sort = plot_visibility_timeline(df_obs, ...)
+_df_sorted = _sort_df_like_chart(df_obs, _chart_sort, priority_col="Priority") if _chart_sort else df_obs
+display_table(_df_sorted)
+```
+
+**`_sort_df_like_chart()` behaviour:**
+- **Earliest Rise/Set/Transit:** Sorts by the corresponding `_rise_datetime` / `_set_datetime` / `_transit_datetime` column (ascending, NaT at bottom). "Always Up" objects are pushed to the bottom, sorted among themselves by transit time — mirroring the Gantt chart's Always Up handling.
+- **Priority Order:** Uses the same URGENT→HIGH→LOW→⭐→blank ranking as the chart. Always Up objects stay in priority-ranked position (not pushed to bottom).
+- **Default Order / Discovery Date:** Returns the DataFrame as-is (original order).
+- **`None` return (empty chart):** Caller skips sorting — table stays in default order.
+
+All 6 sections (DSO, Planet, Comet My List, Comet Catalog, Asteroid, Cosmic) are wired up. The `display_dso_table()` helper no longer does its own magnitude sort internally — it receives the pre-sorted DataFrame from the caller.
 
 ### 6. Comet Mode Toggle
 
@@ -197,9 +221,9 @@ The Night Plan Builder lives in a collapsible `st.expander` after the Observable
 
 #### Two helper functions (module-level, before the Cosmic section)
 
-**`build_night_plan(df_obs, start_time, end_time, pri_col, dur_col) → DataFrame`**
+**`build_night_plan(df_obs, pri_col, dur_col) → DataFrame`**
 
-Sorts observable targets URGENT → HIGH → LOW → unassigned, then by ascending `_set_datetime` within each tier. Slots targets sequentially from `start_time`; breaks when the next target would exceed `end_time`; skips any target whose `_set_datetime` is already past `current_time`. Returns a DataFrame with `Obs Start`, `Obs End`, `_sched_start`, `_sched_end` columns added.
+Sorts observable targets URGENT → HIGH → LOW → unassigned, then by ascending `_set_datetime` within each tier. Returns a priority-sorted DataFrame — the user decides when to observe each target (no Obs Start/End scheduling).
 
 **`generate_plan_pdf(df_plan, night_start, night_end, target_col, link_col, dur_col, pri_col, ra_col, dec_col, vmag_col=None) → bytes | None`**
 
@@ -222,21 +246,24 @@ disc_col  = next((c for c in df_display.columns if 'disc' in c.lower() or ('date
 
 ```
 Row 1 — Priority multiselect (full width)
-Row 2 — Refine candidate pool (4 columns):
-         [Magnitude slider] [Event class multiselect] [Discovered last N days slider] [Sets no earlier than time input]
+Row 2 — Refine candidate pool (5 columns):
+         [Magnitude slider] [Event class multiselect] [Discovered last N days slider] [Sets no earlier than time input] [Moon Status multiselect]
 Row 3 — [🗓 Build Plan (primary)] [📊 All Alerts CSV]
 ```
 
 Priority multiselect options: `["URGENT", "HIGH", "LOW", "(unassigned)"]` — MEDIUM has been removed from assignable priorities. Existing rows with MEDIUM still display with yellow highlighting for backward compatibility.
 
-After clicking Build Plan, five sequential filters are applied to `df_obs` before scheduling:
+After clicking Build Plan, six sequential filters are applied to `df_obs` before sorting:
 1. Priority match
 2. Magnitude range (`pd.to_numeric`, unknown magnitudes pass through)
 3. Event class (`isin` match)
 4. Discovery recency (`pd.to_datetime(..., utc=True)` vs cutoff; unknown dates pass through)
 5. Minimum set time (compares `_set_datetime` against a tz-aware datetime; `pd.isnull` targets — Always Up — always pass)
+6. Moon Status (`isin` match against selected statuses; only applied when user deselects at least one status)
 
-The plan table shows: `Obs Start · Obs End · Name · Priority · Type · Rise · Transit · Set · Duration · Vmag · RA · Dec · Constellation · Status · Link`.
+The plan table shows: `Name · Priority · Type · Rise · Transit · Set · Duration · Vmag · RA · Dec · Constellation · Status · Moon Sep (°) · Moon Status · Link`.
+
+A single "Targets Planned" metric is shown above the table. There are no Obs Start/End columns, Scheduled Time, or Remaining Window metrics — the user decides when to observe each target.
 
 The link column is configured as `TextColumn` (not `LinkColumn`) in **both** the observable table (`display_styled_table`) and the Night Plan Builder table. `LinkColumn` only handles `http/https` URLs — using it for `unistellar://` deep links opens a blank page. `TextColumn` displays the full URL as plain text so it is visible and copyable.
 
@@ -296,6 +323,18 @@ These pipelines are independent. New discoveries do NOT automatically appear in 
 - `_deep_text(element)` helper needed: Scrapling's `.text` only returns direct text nodes, not child element text. The helper uses `::text` pseudo-selector to match Selenium's `.text` behaviour.
 - No driver management: Scrapling uses Patchright (Playwright fork) — no ChromeDriver version mismatches.
 - Anti-bot: `StealthyFetcher` bypasses Cloudflare browser checks that block headless Selenium.
+- **Browser auto-install:** `_ensure_browser()` runs `patchright install chromium` once per session before the first scrape. Required for Streamlit Cloud where the browser binary isn't pre-installed. `packages.txt` lists the ~20 system libraries Patchright's Chromium needs on Linux.
+
+**Threading model (`_fetch_page()`):** All `StealthyFetcher.fetch()` calls go through the `_fetch_page(url, **kwargs)` wrapper, which runs the fetch in a `ThreadPoolExecutor(max_workers=1)` worker thread. This solves two problems:
+1. **Streamlit's asyncio loop conflict:** Streamlit runs its own asyncio event loop. Playwright's sync API also needs an event loop — running it on Streamlit's main thread causes `RuntimeError: This event loop is already running`.
+2. **Windows `SelectorEventLoop` limitation:** On Windows, the default `SelectorEventLoop` doesn't support subprocess creation (needed by Playwright to launch Chromium). `_fetch_page` sets `asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())` **process-wide** on `win32` — this ensures ALL new event loops (including Playwright's internal background thread loop created via `new_event_loop()`) use `ProactorEventLoop`.
+
+Per-thread `set_event_loop()` does NOT work because Playwright creates its own event loop in a separate internal thread. The process-wide policy is the only reliable fix.
+
+**Asteroid scraper (fixed 2026-02-24):** `scrape_unistellar_priority_asteroids()` now extracts targets from `<h3>` headings instead of regex on body text. Unistellar uses three naming formats:
+- `2001 FD58` — standard provisional designation (regex match)
+- `2033 (Basilea)` — number then parenthesized name (normalized via `_NUM_PAREN_NAME_RE`)
+- `Eros` — bare name without number (resolved via `_BARE_NAME_ALIASES` lookup)
 
 ---
 
@@ -309,7 +348,8 @@ These pipelines are independent. New discoveries do NOT automatically appear in 
 | `resolve_simbad()` | `backend/resolvers.py` | SIMBAD name lookup → SkyCoord |
 | `resolve_horizons()` | `backend/resolvers.py` | JPL Horizons comet/asteroid position |
 | `resolve_planet()` | `backend/resolvers.py` | JPL Horizons planet position |
-| `plot_visibility_timeline()` | `app.py` | Gantt chart (all sections) |
+| `plot_visibility_timeline()` | `app.py` | Gantt chart (all sections); returns sort selection string |
+| `_sort_df_like_chart()` | `app.py` | Reorder DataFrame to match Gantt chart sort selection |
 | `get_comet_summary()` | `app.py` | Batch comet visibility (cached) |
 | `get_asteroid_summary()` | `app.py` | Batch asteroid visibility (cached) |
 | `get_dso_summary()` | `app.py` | Batch DSO visibility (cached, no API) |
@@ -324,6 +364,8 @@ These pipelines are independent. New discoveries do NOT automatically appear in 
 | `scrape_unistellar_priority_comets()` | `backend/scrape.py` | Scrape comet missions page (Scrapling) |
 | `scrape_unistellar_priority_asteroids()` | `backend/scrape.py` | Scrape planetary defense page (Scrapling) |
 | `_deep_text()` | `backend/scrape.py` | Get all descendant text from Scrapling element |
+| `_fetch_page()` | `backend/scrape.py` | Thread-safe StealthyFetcher wrapper (Streamlit + Windows compat) |
+| `_ensure_browser()` | `backend/scrape.py` | Auto-install Patchright Chromium (idempotent, once per session) |
 | `check_unistellar_priorities.main()` | `scripts/check_unistellar_priorities.py` | Scrape + diff priorities, write `_priority_changes.json` |
 | `open_priority_issues.main()` | `scripts/open_priority_issues.py` | Create GitHub Issues for priority changes |
 

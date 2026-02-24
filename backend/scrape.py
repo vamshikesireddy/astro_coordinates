@@ -1,5 +1,9 @@
 import re
+import sys
+import asyncio
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 
 from scrapling.fetchers import StealthyFetcher
@@ -22,6 +26,26 @@ def _ensure_browser():
     _browser_ready = True
 
 
+def _fetch_page(url, **kwargs):
+    """Run StealthyFetcher.fetch in a worker thread to avoid event loop conflicts.
+
+    Fixes two issues:
+    - Streamlit's running asyncio loop conflicts with Playwright's sync API
+    - Windows SelectorEventLoop doesn't support subprocess (needed by Playwright)
+
+    set_event_loop_policy is process-wide, which is needed because Playwright
+    creates its OWN event loop in a background thread via new_event_loop().
+    """
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+    def _worker():
+        return StealthyFetcher.fetch(url, **kwargs)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(_worker).result()
+
+
 def _deep_text(element):
     """Get ALL text from a Scrapling element, including child elements.
 
@@ -41,7 +65,7 @@ def scrape_unistellar_table():
     try:
         print("Connecting to Unistellar Alerts...")
         _ensure_browser()
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        page = _fetch_page(url, headless=True, network_idle=True)
 
         # Get headers
         headers = [_deep_text(h).replace('\n', ' ') for h in page.css("table th")]
@@ -95,7 +119,7 @@ def scrape_unistellar_priority_comets():
 
     try:
         _ensure_browser()
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        page = _fetch_page(url, headless=True, network_idle=True)
 
         # Collect text from headings and content sections (Divi theme structure)
         elements = page.css("h1,h2,h3,h4,p,.et_pb_text_inner")
@@ -158,7 +182,7 @@ def scrape_unistellar_priority_asteroids():
 
     try:
         _ensure_browser()
-        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        page = _fetch_page(url, headless=True, network_idle=True)
 
         # Each mission target is an <h3> heading on the page
         found = []

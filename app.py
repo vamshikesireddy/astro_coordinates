@@ -116,7 +116,7 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
     chart_data = df.dropna(subset=['_rise_datetime', '_set_datetime']).copy()
 
     if chart_data.empty:
-        return
+        return None
 
     # Convert to naive datetime to display "Wall Clock" time on the chart
     chart_data['_rise_naive'] = chart_data['_rise_datetime'].apply(lambda x: x.replace(tzinfo=None) if pd.notnull(x) else None)
@@ -303,6 +303,50 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
     if obs_caption:
         st.caption(obs_caption)
 
+    return sort_option
+
+
+def _sort_df_like_chart(df, sort_option, priority_col=None):
+    """Reorder a DataFrame to match the Gantt chart sort selection.
+
+    For Earliest Rise/Set/Transit, 'Always Up' objects are pushed to the bottom
+    (sorted by transit among themselves), matching the Gantt chart behaviour.
+    """
+    if not sort_option:
+        return df
+
+    _au = df['Status'].str.contains('Always Up', na=False) if 'Status' in df.columns else pd.Series(False, index=df.index)
+
+    if sort_option == "Earliest Rise" and '_rise_datetime' in df.columns:
+        reg = df[~_au].sort_values('_rise_datetime', ascending=True, na_position='last')
+        au = df[_au].sort_values('_transit_datetime', ascending=True, na_position='last') if '_transit_datetime' in df.columns else df[_au]
+        return pd.concat([reg, au])
+    elif sort_option == "Earliest Set" and '_set_datetime' in df.columns:
+        reg = df[~_au].sort_values('_set_datetime', ascending=True, na_position='last')
+        au = df[_au].sort_values('_transit_datetime', ascending=True, na_position='last') if '_transit_datetime' in df.columns else df[_au]
+        return pd.concat([reg, au])
+    elif sort_option == "Earliest Transit" and '_transit_datetime' in df.columns:
+        reg = df[~_au].sort_values('_transit_datetime', ascending=True, na_position='last')
+        au = df[_au].sort_values('_transit_datetime', ascending=True, na_position='last')
+        return pd.concat([reg, au])
+    elif priority_col and priority_col in df.columns:
+        _PRI_RANK = {"URGENT": 0, "HIGH": 1, "LOW": 2}
+
+        def _rank(val):
+            v = str(val).upper() if pd.notna(val) else ""
+            for k, r in _PRI_RANK.items():
+                if k in v:
+                    return r
+            if v.strip():
+                return 3
+            return 4
+
+        tmp = df.copy()
+        tmp['_sort_rank'] = tmp[priority_col].apply(_rank)
+        return tmp.sort_values('_sort_rank', kind='mergesort').drop(columns=['_sort_rank'])
+    else:
+        return df
+
 
 def _send_github_notification(title, body):
     """Creates a GitHub Issue to notify admin. Reusable across all sections."""
@@ -318,16 +362,14 @@ def _send_github_notification(title, body):
             print(f"Failed to send notification: {e}")
 
 
-def build_night_plan(df_obs, start_time, end_time, pri_col, dur_col):
-    """Build an optimized sequential observation schedule.
+def build_night_plan(df_obs, pri_col, dur_col):
+    """Build a filtered, priority-sorted target list for tonight.
 
     Sort order: URGENT > HIGH > MEDIUM > LOW > unassigned,
     then ascending set-time within each tier (observe targets that set
     soonest before they disappear below the horizon).
 
-    Targets are slotted one after another from start_time.  The loop
-    stops as soon as the next target would push past end_time, or when
-    a target has already set before the current slot begins.
+    Returns the sorted DataFrame — the user decides when to observe each target.
     """
     PRIORITY_RANK = {"URGENT": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -351,43 +393,7 @@ def build_night_plan(df_obs, start_time, end_time, pri_col, dur_col):
         sort_cols.append('_set_sort')
     df = df.sort_values(sort_cols, ascending=True, na_position='last')
 
-    current_time = start_time
-    scheduled = []
-
-    for _, row in df.iterrows():
-        dur_min = 5.0  # default 5 minutes
-        if dur_col and dur_col in row.index:
-            try:
-                v = float(row[dur_col])
-                if v > 0:
-                    dur_min = v
-            except (ValueError, TypeError):
-                pass
-
-        obs_end = current_time + timedelta(minutes=dur_min)
-
-        if obs_end > end_time:
-            break
-
-        # Skip if target has already set before the current slot
-        set_dt = row.get('_set_datetime')
-        if set_dt is not None:
-            try:
-                if hasattr(set_dt, 'tzinfo') and set_dt.tzinfo is not None:
-                    if current_time > set_dt:
-                        continue
-            except TypeError:
-                pass
-
-        r = row.to_dict()
-        r['Obs Start'] = current_time.strftime('%H:%M')
-        r['Obs End']   = obs_end.strftime('%H:%M')
-        r['_sched_start'] = current_time
-        r['_sched_end']   = obs_end
-        scheduled.append(r)
-        current_time = obs_end
-
-    return pd.DataFrame(scheduled) if scheduled else pd.DataFrame()
+    return df
 
 
 def generate_plan_pdf(df_plan, night_start, night_end,
@@ -461,7 +467,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     )
 
     # Column order for the PDF
-    display_cols = ['#', 'Obs Start', 'Obs End']
+    display_cols = ['#']
     for c in [target_col, pri_col, 'Type',
               'Rise', 'Transit', 'Set', dur_col,
               vmag_col, ra_col, dec_col, 'Constellation',
@@ -471,11 +477,11 @@ def generate_plan_pdf(df_plan, night_start, night_end,
 
     # Column widths in cm — tuned to fit landscape A4 (~27 cm usable)
     _W = {
-        '#': 0.6, 'Obs Start': 1.4, 'Obs End': 1.4,
-        target_col: 2.6, pri_col: 1.5, 'Type': 1.2,
-        'Rise': 1.4, 'Transit': 1.4, 'Set': 1.4,
+        '#': 0.6,
+        target_col: 2.8, pri_col: 1.5, 'Type': 1.2,
+        'Rise': 1.6, 'Transit': 1.6, 'Set': 1.6,
         dur_col: 1.2, vmag_col: 1.0, ra_col: 1.9, dec_col: 1.7,
-        'Constellation': 1.6, 'Status': 1.7, 'Moon Sep (°)': 1.6, 'Moon Status': 1.4, _link_col: 4.5,
+        'Constellation': 1.6, 'Status': 1.7, 'Moon Sep (°)': 1.6, 'Moon Status': 1.4, _link_col: 5.0,
     }
     col_widths = [_W.get(c, 1.5) * cm for c in display_cols]
 
@@ -1234,12 +1240,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
 
             def display_dso_table(df_in):
                 show = [c for c in display_cols_d if c in df_in.columns]
-                # Sort observable tab by magnitude (brightest first) by default
-                if "Magnitude" in df_in.columns:
-                    df_sorted = df_in[show].sort_values("Magnitude", ascending=True)
-                else:
-                    df_sorted = df_in[show]
-                st.dataframe(df_sorted, hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
+                st.dataframe(df_in[show], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
 
             tab_obs_d, tab_filt_d = st.tabs([
                 f"🎯 Observable ({len(df_obs_d)})",
@@ -1248,9 +1249,9 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
 
             with tab_obs_d:
                 st.subheader(f"Observable — {category}")
-                plot_visibility_timeline(df_obs_d, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
-                st.caption("Sorted by magnitude (brightest first). Use the Gantt chart sort options to reorder by rise/set time.")
-                display_dso_table(df_obs_d)
+                _chart_sort_d = plot_visibility_timeline(df_obs_d, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
+                _df_sorted_d = _sort_df_like_chart(df_obs_d, _chart_sort_d) if _chart_sort_d else df_obs_d
+                display_dso_table(_df_sorted_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
 
             with tab_filt_d:
@@ -1415,9 +1416,10 @@ elif target_mode == "Planet (JPL Horizons)":
 
             with tab_obs_p:
                 if not df_obs_p.empty:
-                    plot_visibility_timeline(df_obs_p, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
-                    show_p = [c for c in display_cols_p if c in df_obs_p.columns]
-                    st.dataframe(df_obs_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
+                    _chart_sort_p = plot_visibility_timeline(df_obs_p, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
+                    _df_sorted_p = _sort_df_like_chart(df_obs_p, _chart_sort_p) if _chart_sort_p else df_obs_p
+                    show_p = [c for c in display_cols_p if c in _df_sorted_p.columns]
+                    st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 else:
                     st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az {az_range}, Moon Sep > {min_moon_sep}°) during the selected window.")
@@ -1830,8 +1832,9 @@ elif target_mode == "Comet (JPL Horizons)":
 
                 with tab_obs_c:
                     st.subheader("Observable Comets")
-                    plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
-                    display_comet_table(df_obs_c)
+                    _chart_sort_c = plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
+                    _df_sorted_c = _sort_df_like_chart(df_obs_c, _chart_sort_c, priority_col="Priority") if _chart_sort_c else df_obs_c
+                    display_comet_table(_df_sorted_c)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                     st.markdown(
                         "**Legend:** <span style='background-color: #e3f2fd; color: #0d47a1; "
@@ -2016,14 +2019,15 @@ elif target_mode == "Comet (JPL Horizons)":
                                           "RA", "Dec", "Status"]
                         with _tab_obs_cat:
                             st.subheader("Observable Comets (Catalog)")
-                            plot_visibility_timeline(
+                            _chart_sort_cat = plot_visibility_timeline(
                                 _df_obs_cat,
                                 obs_start=obs_start_naive if show_obs_window else None,
                                 obs_end=obs_end_naive if show_obs_window else None,
                                 default_sort_label="Priority Order"
                             )
+                            _df_sorted_cat = _sort_df_like_chart(_df_obs_cat, _chart_sort_cat) if _chart_sort_cat else _df_obs_cat
                             st.dataframe(
-                                _df_obs_cat[[c for c in _show_cols_cat if c in _df_obs_cat.columns]],
+                                _df_sorted_cat[[c for c in _show_cols_cat if c in _df_sorted_cat.columns]],
                                 hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG
                             )
                         with _tab_filt_cat:
@@ -2438,8 +2442,9 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
             with tab_obs_a:
                 st.subheader("Observable Asteroids")
-                plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
-                display_asteroid_table(df_obs_a)
+                _chart_sort_a = plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
+                _df_sorted_a = _sort_df_like_chart(df_obs_a, _chart_sort_a, priority_col="Priority") if _chart_sort_a else df_obs_a
+                display_asteroid_table(_df_sorted_a)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 st.markdown(
                     "**Legend:** <span style='background-color: #e3f2fd; color: #0d47a1; "
@@ -2966,12 +2971,13 @@ elif target_mode == "Cosmic Cataclysm":
             
             with tab_obs:
                 st.subheader("Available Targets")
-                
-                plot_visibility_timeline(df_obs, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Order By Discovery Date")
+
+                _chart_sort_cosmic = plot_visibility_timeline(df_obs, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Order By Discovery Date")
 
                 st.info("ℹ️ **Note:** The 'DeepLink' column is for Unistellar telescopes only. For other equipment, please use the RA/Dec coordinates.")
 
-                display_styled_table(df_obs)
+                _df_sorted_cosmic = _sort_df_like_chart(df_obs, _chart_sort_cosmic) if _chart_sort_cosmic else df_obs
+                display_styled_table(_df_sorted_cosmic)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
 
                 # Legend (below table so it's clear it belongs to the data, not the chart)
@@ -3001,13 +3007,9 @@ elif target_mode == "Cosmic Cataclysm":
             with st.expander("📅 Night Plan Builder", expanded=False):
                 _night_end = start_time + timedelta(minutes=duration)
                 st.caption(
-                    f"Builds an optimized, sequential observation schedule from "
-                    f"**{start_time.strftime('%H:%M')}** to "
-                    f"**{_night_end.strftime('%H:%M')}** "
-                    f"({duration} min window).  "
-                    f"Targets are sorted **URGENT → HIGH → LOW → unassigned**, "
-                    f"then by set-time within each tier (things that set sooner go first).  "
-                    f"Targets are slotted back-to-back; the schedule stops when the window is full."
+                    "Filter observable targets by priority, magnitude, event class, moon conditions, and more. "
+                    "Targets are sorted **URGENT → HIGH → LOW → unassigned**, "
+                    "then by set-time within each tier (things that set sooner go first)."
                 )
 
                 # ── Row 1: priority ────────────────────────────────────────────
@@ -3023,7 +3025,7 @@ elif target_mode == "Cosmic Cataclysm":
 
                 # ── Row 2: optional candidate-pool filters ─────────────────────
                 st.caption("**Refine candidate pool** *(optional — defaults include everything)*")
-                _fc1, _fc2, _fc3, _fc4 = st.columns(4)
+                _fc1, _fc2, _fc3, _fc4, _fc5 = st.columns(5)
 
                 with _fc1:
                     if vmag_col and not df_obs.empty and vmag_col in df_obs.columns:
@@ -3086,6 +3088,22 @@ elif target_mode == "Cosmic Cataclysm":
                             "Raise it to drop targets that will set mid-session."
                         ),
                     )
+
+                with _fc5:
+                    _all_moon_statuses = ["🌑 Dark Sky", "✅ Safe", "⚠️ Caution", "⛔ Avoid"]
+                    if 'Moon Status' in df_obs.columns:
+                        _sel_moon = st.multiselect(
+                            "Moon Status",
+                            options=_all_moon_statuses,
+                            default=_all_moon_statuses,
+                            help=(
+                                "Filter by Moon Status. Deselect '⛔ Avoid' to "
+                                "exclude targets too close to the Moon."
+                            ),
+                        )
+                    else:
+                        _sel_moon = None
+                        st.caption("*Moon Status: not in data*")
 
                 # ── Row 3: action buttons ──────────────────────────────────────
                 _bc1, _bc2 = st.columns(2)
@@ -3171,42 +3189,24 @@ elif target_mode == "Cosmic Cataclysm":
                                 _plan_src['_set_datetime'].apply(_passes_set_filter)
                             ]
 
+                        # ── Filter: Moon Status ───────────────────────────────
+                        if (_sel_moon is not None and 'Moon Status' in _plan_src.columns
+                                and len(_sel_moon) < len(_all_moon_statuses)):
+                            _plan_src = _plan_src[
+                                _plan_src['Moon Status'].isin(_sel_moon)
+                            ]
+
                         if _plan_src.empty:
                             st.warning("No observable targets match the selected filters.")
                         else:
                             _scheduled = build_night_plan(
-                                _plan_src, start_time, _night_end,
-                                pri_col, dur_col,
+                                _plan_src, pri_col, dur_col,
                             )
 
                             if _scheduled.empty:
-                                st.warning(
-                                    "Could not fit any targets within the observation window. "
-                                    "Try extending the Duration in the sidebar."
-                                )
+                                st.warning("No targets matched after sorting.")
                             else:
-                                # Metrics row
-                                _total_sec = 0
-                                if dur_col and dur_col in _scheduled.columns:
-                                    for _v in _scheduled[dur_col]:
-                                        try:
-                                            _total_sec += int(float(_v))
-                                        except (ValueError, TypeError):
-                                            _total_sec += 300
-                                else:
-                                    _total_sec = len(_scheduled) * 300
-                                _rem_sec = max(0, duration * 60 - _total_sec)
-
-                                _m1, _m2, _m3 = st.columns(3)
-                                _m1.metric("Targets Planned", len(_scheduled))
-                                _m2.metric(
-                                    "Scheduled Time",
-                                    f"{_total_sec // 60}m {_total_sec % 60}s",
-                                )
-                                _m3.metric(
-                                    "Remaining Window",
-                                    f"{_rem_sec // 60}m {_rem_sec % 60}s",
-                                )
+                                st.metric("Targets Planned", len(_scheduled))
 
                                 # Re-detect link column directly from _scheduled so we never
                                 # miss it due to outer-scope variable being stale or None.
@@ -3217,11 +3217,12 @@ elif target_mode == "Cosmic Cataclysm":
                                 )
 
                                 # Build display table (explicit column list, no hidden _cols)
-                                _plan_show = ['Obs Start', 'Obs End']
+                                _plan_show = []
                                 for _c in [target_col, pri_col, 'Type',
                                            'Rise', 'Transit', 'Set', dur_col,
                                            vmag_col, ra_col, dec_col, 'Constellation',
-                                           'Status', 'Moon Sep (°)', _plan_link_col]:
+                                           'Status', 'Moon Sep (°)', 'Moon Status',
+                                           _plan_link_col]:
                                     if _c and _c in _scheduled.columns and _c not in _plan_show:
                                         _plan_show.append(_c)
                                 _plan_display = _scheduled[
@@ -3236,6 +3237,8 @@ elif target_mode == "Cosmic Cataclysm":
                                     )
                                 if 'Moon Sep (°)' in _plan_display.columns:
                                     _plan_cfg['Moon Sep (°)'] = st.column_config.TextColumn("Moon Sep (°)")
+                                if 'Moon Status' in _plan_display.columns:
+                                    _plan_cfg['Moon Status'] = st.column_config.TextColumn("Moon Status")
                                 # Show the raw URL as text (unistellar:// deeplinks are
                                 # not http so LinkColumn would hide the actual URL)
                                 if _plan_link_col and _plan_link_col in _plan_display.columns:

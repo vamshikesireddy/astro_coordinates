@@ -18,6 +18,67 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-02-24 — Fix asteroid priority scraper (find all 5 Unistellar missions)
+
+**Bug:** `scrape_unistellar_priority_asteroids()` only found 2 of 5 priority asteroids (2001 FD58, 1796 Riga). Missing: 433 Eros, 2033 Basilea, 3260 Vizbor.
+
+**Root cause:** The scraper used regex on the full page body text. Unistellar's planetary defense page uses three different naming formats in `<h3>` headings:
+- `2001 FD58` — standard provisional designation (regex matched)
+- `2033 (Basilea)` — number then parenthesized name (regex missed)
+- `Eros` — bare name with no number (regex missed)
+
+**Fix:** Rewrote scraper to extract targets from `<h3>` headings directly instead of regex on body text. Added `_BARE_NAME_ALIASES` dict for well-known bare names (Eros→433 Eros, Apophis→99942 Apophis, etc.), `_NUM_PAREN_NAME_RE` regex to normalize `2033 (Basilea)` → `2033 Basilea`, and `_SKIP_HEADINGS` set to filter page-structure headings. Updated `asteroids.yaml` to include all 5 in `unistellar_priority`.
+
+**Files changed:** `backend/scrape.py`, `asteroids.yaml`, `CLAUDE.md`.
+
+---
+
+## 2026-02-24 — Fix Scrapling browser issues (Streamlit Cloud + Windows)
+
+**Bug 1 — Streamlit Cloud:** Cosmic page scraper failed with "Failed to scrape data". Patchright (Playwright fork) needs a Chromium browser binary installed, which isn't pre-installed on Streamlit Cloud.
+
+**Fix:** Added `_ensure_browser()` that runs `patchright install chromium` once per session before the first scrape. Updated `packages.txt` from Selenium system deps (chromium, chromium-driver) to the ~20 system libraries Patchright's Chromium needs on Linux (libnss3, libgbm1, etc.).
+
+**Bug 2 — Windows local:** `NotImplementedError` from `asyncio.base_events._make_subprocess_transport`. Windows' default `SelectorEventLoop` doesn't support subprocess creation, which Playwright needs to launch Chromium.
+
+**Fix:** Added `_fetch_page(url, **kwargs)` wrapper that runs `StealthyFetcher.fetch()` in a `ThreadPoolExecutor` worker thread and sets `asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())` process-wide on `win32`. The process-wide policy is required because Playwright creates its own event loop in a background thread via `new_event_loop()` — per-thread `set_event_loop()` doesn't affect it.
+
+**Files changed:** `backend/scrape.py`, `packages.txt`.
+
+---
+
+## 2026-02-24 — Simplify Night Plan Builder + add Moon Status filter
+
+**Change 1 — Remove scheduling columns:** Removed Obs Start/End columns from the Night Plan table and PDF. The builder now returns a priority-sorted target list — the user decides when to observe each target. `build_night_plan()` no longer takes `start_time`/`end_time` parameters.
+
+**Change 2 — Remove scheduling metrics:** Removed "Scheduled Time" and "Remaining Window" metrics. A single "Targets Planned" metric is shown above the table.
+
+**Change 3 — Add Moon Status filter:** Added Moon Status multiselect to the Night Plan Builder's filter row (5th column). Options: 🌑 Dark Sky, ✅ Safe, ⚠️ Caution, ⛔ Avoid. All selected by default; only filters when the user deselects at least one status.
+
+**Files changed:** `app.py`, `CLAUDE.md`.
+
+**Branch:** `feature/night-plan-simplify`
+
+---
+
+## 2026-02-24 — Sync Gantt chart sort with overview table sort
+
+**Change:** The Gantt chart sort radio buttons (Earliest Set / Rise / Transit / Default) now also reorder the overview table below. Previously, the chart and table were completely decoupled — the chart visual reordered but the table always stayed in its original order.
+
+**Implementation:**
+- `plot_visibility_timeline()` now returns the selected `sort_option` string (was implicit `None`)
+- New `_sort_df_like_chart(df, sort_option, priority_col)` helper reorders the DataFrame to match the chart's sort
+- All 6 call sites (DSO, Planet, Comet My List, Comet Catalog, Asteroid, Cosmic) capture the return and sort the table DataFrame before display
+- `display_dso_table()` no longer sorts by magnitude internally — it receives the pre-sorted DataFrame from the caller
+
+**Always Up handling:** For Earliest Rise/Set/Transit sorts, Always Up objects are pushed to the bottom of the table (sorted by transit among themselves), matching the Gantt chart. For Priority/Default/Discovery Date sorts, they stay in their ranked position.
+
+**Files changed:** `app.py`, `CLAUDE.md`.
+
+**Branch:** `feature/night-plan-simplify`
+
+---
+
 ## 2026-02-23 — Moon Separation calculation was completely wrong
 
 **Bug:** Every Moon Sep value across all six sections was incorrect. Example: ZTF25abwjewp (RA 10h 24m, Dec +5°15') showed 4.4°–4.5° when the true separation was ~98°.
