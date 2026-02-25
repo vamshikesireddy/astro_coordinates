@@ -2,6 +2,8 @@
 
 Developer guide for Claude (and human contributors) working on this codebase.
 
+**Available tools (already installed):** Scrapling, Playwright, Astropy, Streamlit, ReportLab, Altair, Anthropic SDK, Ollama — see [`../AVAILABLE_TOOLS.md`](../AVAILABLE_TOOLS.md) for usage patterns.
+
 ---
 
 ## Architecture at a Glance
