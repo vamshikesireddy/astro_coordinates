@@ -1205,15 +1205,21 @@ with st.expander("ℹ️ How to Use"):
     Select one of the six modes:
     *   **🌌 Star/Galaxy/Nebula:** Browse the full Messier catalog, Bright Stars, or Astrophotography Favorites with batch visibility (Observable/Unobservable tabs + Gantt chart). Filter by object type. Select any target for a full trajectory, or use 'Custom Object...' to search SIMBAD for any object by name.
     *   **🪐 Planet:** Select a major planet.
-    *   **☄️ Comet:** Select from popular comets or search JPL Horizons.
-    *   **🪨 Asteroid:** Select major asteroids or search by name.
-    *   **💥 Cosmic Cataclysm:** Live alerts for transient events. **(New: Report invalid/cancelled events or suggest priorities)**.
+    *   **☄️ Comet:** Two modes — **My List** (tracked comets with Unistellar priority highlights) or **Explore Catalog** (full MPC archive with orbit type and magnitude filters).
+    *   **🪨 Asteroid:** Batch visibility for tracked asteroids with Unistellar Planetary Defense priority highlights.
+    *   **💥 Cosmic Cataclysm:** Live alerts for transient events (novae, supernovae, variable stars). Report invalid/cancelled events or suggest priorities.
     *   **✍️ Manual:** Enter RA/Dec directly.
 
     ### 3. Calculate & Analyze
     *   Click **🚀 Calculate Visibility**.
     *   View the **Altitude Chart** to see if the object is high enough.
     *   **Download CSV** for detailed minute-by-minute data.
+
+    ### 4. Night Plan Builder
+    Every section's **Observable** tab has a **📅 Night Plan Builder** expander. Use it to build a sorted target list for the night:
+    *   **Sort by Set Time or Transit Time** — choose which to sort by using the radio; the same column also sets the minimum-time filter threshold.
+    *   **Filter** by priority level, magnitude, event type, discovery recency, and Moon Status.
+    *   **Export** the plan as CSV or PDF (PDF is priority-colour-coded with deeplinks for each target).
     """)
 
 # ---------------------------

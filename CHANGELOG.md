@@ -4,6 +4,27 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-02-25 — Night Plan Builder: sort by Set Time or Transit Time
+
+**Change:** The Night Plan Builder's sort order is no longer driven by priority. Priority colour-coding (URGENT red / HIGH orange / LOW green) remains for visual scanning, but the plan is now sorted purely by time.
+
+**New UX — Row B radio:**
+- "Sort & filter plan by: ● Set Time  ○ Transit Time"
+- Selecting one changes both the time-input label ("Sets no earlier than" → "Transits no earlier than") and the sort column (`_set_datetime` → `_transit_datetime`), so the filter threshold and sort always match.
+- A dynamic caption below the radio states the active sort: *"Plan sorted by **Set Time** — targets that set soonest appear first."*
+
+**`build_night_plan()` simplified:**
+- Removed `pri_col`, `dur_col` dead parameters
+- Added `sort_by="set"|"transit"` parameter
+- Sorts ascending by the chosen datetime column, NaT last
+- Drops the internal `_time_sort` temp column before returning
+
+**Scope:** All 6 Night Plan Builder sections (DSO, Planet, Comet My List, Comet Catalog, Asteroid, Cosmic).
+
+**Files changed:** `app.py`, `CLAUDE.md`, `CHANGELOG.md`, `README.md`.
+
+---
+
 ## 2026-02-24 — Night Plan Builder UI polish (layout + dynamic priorities)
 
 **Fix 1 — Two-row filter layout:** Sections with 4+ filters (DSO, Cosmic) had cramped columns with truncated multiselect labels. Filters are now split into two rows: Row A for data-specific filters (Magnitude, Type, Discovery) and Row B for Set time + Moon Status. DSO gets 2+2, Cosmic gets 3+2, simpler sections keep a single 2-column row.
