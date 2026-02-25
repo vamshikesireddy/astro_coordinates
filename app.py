@@ -362,13 +362,16 @@ def _send_github_notification(title, body):
             print(f"Failed to send notification: {e}")
 
 
-def build_night_plan(df_obs, pri_col, dur_col, sort_by="set"):
-    """Build a filtered, time-sorted target list for tonight.
+def build_night_plan(df_obs, sort_by="set"):
+    """Build a time-sorted target list for tonight.
 
-    Sort order: ascending set-time (sort_by='set') or transit-time
-    (sort_by='transit'). Priority colour-coding is handled by the caller.
+    Args:
+        df_obs:   Observable targets DataFrame.
+        sort_by:  'set' (default) sorts by _set_datetime;
+                  'transit' sorts by _transit_datetime.
+                  Ascending in both cases, NaT last.
 
-    Returns the sorted DataFrame.
+    Returns the sorted DataFrame. Priority colour-coding is handled by the caller.
     """
     df = df_obs.copy()
 
@@ -376,6 +379,7 @@ def build_night_plan(df_obs, pri_col, dur_col, sort_by="set"):
     if sort_col in df.columns:
         df['_time_sort'] = pd.to_datetime(df[sort_col], errors='coerce', utc=True)
         df = df.sort_values('_time_sort', ascending=True, na_position='last')
+        df = df.drop(columns=['_time_sort'])
 
     return df
 
@@ -768,7 +772,7 @@ def _render_night_plan_builder(
             if _plan_src.empty:
                 st.warning("No observable targets match the selected filters.")
             else:
-                _scheduled = build_night_plan(_plan_src, pri_col, dur_col)
+                _scheduled = build_night_plan(_plan_src)
 
                 if _scheduled.empty:
                     st.warning("No targets matched after sorting.")
