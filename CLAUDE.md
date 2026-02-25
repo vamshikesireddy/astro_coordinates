@@ -237,7 +237,7 @@ Displayed under `st.sidebar.markdown("---")` in the main setup block (after the 
 
 ### 8. Night Plan Builder (all sections)
 
-Every section has a Night Plan Builder in a collapsible `st.expander("📅 Night Plan Builder")` inside the Observable tab. The builder filters observable targets, sorts them by priority + set-time, and exports as CSV/PDF.
+Every section has a Night Plan Builder in a collapsible `st.expander("📅 Night Plan Builder")` inside the Observable tab. The builder filters observable targets, sorts them by set time or transit time (user's choice), and exports as CSV/PDF.
 
 #### Three helper functions (module-level)
 
@@ -290,7 +290,7 @@ Filters are split across two rows to avoid cramped columns:
 
 #### Dynamic priority detection
 
-The priority multiselect options are built from actual DataFrame values, not hardcoded. Comets and Asteroids use `⭐ PRIORITY` (binary flag from `unistellar_priority`), while Cosmic uses tiered URGENT/HIGH/LOW labels from `targets.yaml`. The caption text adapts: tiered sections show "URGENT → HIGH → LOW → unassigned", non-tiered sections show "Priority targets are listed first".
+The priority multiselect options are built from actual DataFrame values, not hardcoded. Comets and Asteroids use `⭐ PRIORITY` (binary flag from `unistellar_priority`), while Cosmic uses tiered URGENT/HIGH/LOW labels from `targets.yaml`. The multiselect is used for filtering only — it does not affect sort order.
 
 #### Per-section call sites
 
@@ -321,7 +321,7 @@ disc_col  = next((c for c in df_display.columns if 'disc' in c.lower() or ('date
 2. Magnitude range (if `vmag_col`)
 3. Type/class (if `type_col`)
 4. Discovery recency (if `disc_col`)
-5. Minimum set time (always — uses `_set_datetime`)
+5. Minimum time threshold (always — uses `_set_datetime` or `_transit_datetime` based on Sort radio selection)
 6. Moon Status (always if column exists — only filters when user deselects a status)
 
 #### Export formats
