@@ -552,9 +552,6 @@ def _render_night_plan_builder(
         _raw_vals = _raw_vals[_raw_vals != '']
         _unique_pri = sorted(_raw_vals.unique().tolist())
         _pri_options = _unique_pri + ["(unassigned)"]
-        _has_tiers = any(
-            t in v.upper() for v in _unique_pri for t in ("URGENT", "HIGH", "LOW")
-        )
 
     # Caption rendered after sort radio (see Row 2b below)
 

@@ -173,7 +173,7 @@ if dur_col and dur_col in df_display.columns:
 ```
 It is formatted with `st.column_config.NumberColumn(format="%d min")` inside `display_styled_table` — displays as `10 min` (integer, no decimal). It stays numeric (float) internally so sorting works.
 
-`build_night_plan` reads the Duration column as **minutes** and schedules slots with `timedelta(minutes=dur_min)` (default `5.0` min).
+`build_night_plan` sorts by the chosen time column (`_set_datetime` or `_transit_datetime`). Duration display is handled by the caller.
 
 **Rule:** Never convert a column to string just to add a unit suffix (e.g. `col.astype(str) + " min"`). That breaks column-header sorting. Always use `column_config` instead.
 
@@ -241,8 +241,8 @@ Every section has a Night Plan Builder in a collapsible `st.expander("📅 Night
 
 #### Three helper functions (module-level)
 
-**`build_night_plan(df_obs, pri_col, dur_col) → DataFrame`**
-Sorts observable targets URGENT → HIGH → LOW → unassigned, then by ascending `_set_datetime` within each tier. Returns a priority-sorted DataFrame — the user decides when to observe each target.
+**`build_night_plan(df_obs, sort_by="set") → DataFrame`**
+Sorts observable targets by ascending `_set_datetime` (`sort_by='set'`) or `_transit_datetime` (`sort_by='transit'`). Returns the sorted DataFrame — priority colour-coding is handled by the caller.
 
 **`generate_plan_pdf(df_plan, night_start, night_end, target_col, link_col, dur_col, pri_col, ra_col, dec_col, vmag_col=None) → bytes | None`**
 Requires `reportlab`. Returns landscape A4 PDF bytes. Re-detects link column internally. Header row `#4472C4` blue. Priority rows colour-coded. Link column renders raw URL as plain text.
@@ -277,16 +277,16 @@ _render_night_plan_builder(
 Filters are split across two rows to avoid cramped columns:
 
 - **Row A** (data-specific filters): Magnitude slider, Type multiselect, Discovery recency — only shown if the section has these columns. Sections without data-specific filters skip this row entirely.
-- **Row B** (always present): Set time + Moon Status — every section gets this row.
+- **Row B** (always present): Sort radio (Set Time / Transit Time) + contextual time threshold + Moon Status — every section gets this row. 3 columns when Moon Status is available, 2 columns otherwise.
 
 | Section | Row A | Row B | Priority row |
 |---|---|---|---|
-| DSO | Magnitude + Type (2 cols) | Set time + Moon Status (2 cols) | — |
-| Planet | — | Set time + Moon Status (2 cols) | — |
-| Comet My List | — | Set time + Moon Status (2 cols) | ⭐ PRIORITY / (unassigned) |
-| Comet Catalog | — | Set time + Moon Status (2 cols) | — |
-| Asteroid | — | Set time + Moon Status (2 cols) | ⭐ PRIORITY / (unassigned) |
-| Cosmic | Magnitude + Type + Discovery (3 cols) | Set time + Moon Status (2 cols) | URGENT / HIGH / LOW / (unassigned) |
+| DSO | Magnitude + Type (2 cols) | Sort radio + Time threshold + Moon Status (3 cols) | — |
+| Planet | — | Sort radio + Time threshold + Moon Status (3 cols) | — |
+| Comet My List | — | Sort radio + Time threshold + Moon Status (3 cols) | ⭐ PRIORITY / (unassigned) |
+| Comet Catalog | — | Sort radio + Time threshold + Moon Status (3 cols) | — |
+| Asteroid | — | Sort radio + Time threshold + Moon Status (3 cols) | ⭐ PRIORITY / (unassigned) |
+| Cosmic | Magnitude + Type + Discovery (3 cols) | Sort radio + Time threshold + Moon Status (3 cols) | URGENT / HIGH / LOW / (unassigned) |
 
 #### Dynamic priority detection
 
@@ -409,7 +409,7 @@ Per-thread `set_event_loop()` does NOT work because Playwright creates its own e
 | `get_asteroid_summary()` | `app.py` | Batch asteroid visibility (cached) |
 | `get_dso_summary()` | `app.py` | Batch DSO visibility (cached, no API) |
 | `get_planet_summary()` | `app.py` | Batch planet visibility |
-| `build_night_plan()` | `app.py` | Sort targets by priority + set-time for night plan |
+| `build_night_plan()` | `app.py` | Sort targets by set-time or transit-time for night plan |
 | `generate_plan_pdf()` | `app.py` | Render night plan as downloadable PDF |
 | `_render_night_plan_builder()` | `app.py` | Shared Night Plan Builder UI (all sections) |
 | `load_comet_catalog()` | `app.py` | Load comets_catalog.json |
