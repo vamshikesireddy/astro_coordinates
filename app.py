@@ -23,9 +23,10 @@ from astropy import units as u
 from astropy.time import Time
 
 try:
-    from streamlit_js_eval import get_geolocation
+    from streamlit_js_eval import get_geolocation, streamlit_js_eval as _ss_js
 except ImportError:
     get_geolocation = None  # optional: GPS checkbox in sidebar disabled without this
+    _ss_js = None           # optional: sessionStorage location persistence disabled without this
 
 try:
     from streamlit_searchbox import st_searchbox
