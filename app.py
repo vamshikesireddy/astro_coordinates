@@ -1463,10 +1463,13 @@ with _az_btn_cols[1]:
     if st.button("Clear All", key="az_clear_all", use_container_width=True):
         for _d in _AZ_LABELS:
             st.session_state[f"az_{_d}"] = False
+for _d in _AZ_LABELS:
+    if f"az_{_d}" not in st.session_state:
+        st.session_state[f"az_{_d}"] = True
 az_dirs = set()
 for _i, _d in enumerate(_AZ_LABELS):
     with _az_cols[_i % 4]:
-        if st.checkbox(_d, value=True, key=f"az_{_d}"):
+        if st.checkbox(_d, key=f"az_{_d}"):
             az_dirs.add(_d)
         st.caption(_AZ_CAPTIONS[_d])
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
