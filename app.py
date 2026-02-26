@@ -1196,6 +1196,7 @@ def get_unistellar_scraped_comets():
 
 ASTEROIDS_FILE = "asteroids.yaml"
 ASTEROID_PENDING_FILE = "asteroid_pending_requests.txt"
+EXOPLANETS_FILE = "exoplanets.yaml"
 
 ASTEROID_ALIASES = {
     "Apophis": "99942 Apophis",
@@ -1253,6 +1254,12 @@ def _asteroid_jpl_id(name):
 def load_asteroids_config():
     from backend.config import read_asteroids_config
     return read_asteroids_config(ASTEROIDS_FILE)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_exoplanets_config():
+    from backend.config import read_exoplanets_config
+    return read_exoplanets_config(EXOPLANETS_FILE)
 
 
 def save_asteroids_config(config):
@@ -1399,6 +1406,163 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
     with ThreadPoolExecutor(max_workers=max(1, min(len(deduped_asteroids), 3))) as executor:
         results = list(executor.map(_fetch, deduped_asteroids))
     return pd.DataFrame(results)   # every entry is a row — no filter(None)
+
+
+@st.cache_data(ttl=3600, show_spinner="Fetching exoplanet transit windows...")
+def get_exoplanet_summary(lat, lon, tz_name, start_time):
+    """Fetch + enrich exoplanet transit events for the next 7 days.
+
+    Returns DataFrame with one row per transit event, enriched with:
+    - Observability score + quality tier
+    - Duration formatted string ("2h 14m")
+    - Moon separation range during transit ("45.2°–67.8°")
+    - Moon status emoji
+
+    Returns empty DataFrame if scrape or Swarthmore fetch fails.
+    """
+    from backend.swarthmore import fetch_transit_windows
+    from backend.scrape import scrape_unistellar_exoplanets
+
+    # 1. Get Unistellar active target list
+    planet_names = scrape_unistellar_exoplanets()
+    if not planet_names:
+        return pd.DataFrame()
+
+    # Apply cancelled list
+    cfg = load_exoplanets_config()
+    cancelled = {c.strip().lower() for c in cfg.get("cancelled", [])}
+    planet_names = [p for p in planet_names if p.strip().lower() not in cancelled]
+    if not planet_names:
+        return pd.DataFrame()
+
+    # 2. Fetch transit windows from Swarthmore
+    df = fetch_transit_windows(lat=lat, lon=lon, tz_name=tz_name,
+                               planet_names=planet_names, days=7)
+    if df.empty:
+        return pd.DataFrame()
+
+    # 3. Enrich each row
+    obs_location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
+    # Moon illumination at start_time (used for Moon Status)
+    try:
+        _t0 = Time(start_time)
+        _sun_t0 = get_sun(_t0)
+        _moon_t0 = get_moon(_t0, obs_location)
+        _elong = _moon_t0.separation(_sun_t0).rad
+        _illum = float(0.5 * (1 - math.cos(_elong))) * 100
+    except Exception:
+        _illum = 50.0
+
+    rows = []
+    for _, row in df.iterrows():
+        try:
+            ingress_dt = row.get("_ingress_dt")
+            mid_dt     = row.get("_mid_dt")
+            egress_dt  = row.get("_egress_dt")
+
+            # Moon separation at mid-transit — Swarthmore provides moon_dist_deg
+            moon_dist = row.get("Moon_Dist_Deg")
+            try:
+                moon_dist_f = float(moon_dist)
+            except (TypeError, ValueError):
+                moon_dist_f = float("nan")
+
+            # Build moon sep range string
+            if not math.isnan(moon_dist_f):
+                moon_sep_str = f"{moon_dist_f:.1f}°"
+                min_moon = moon_dist_f
+            else:
+                moon_sep_str = "–"
+                min_moon = 0.0
+
+            moon_status_str = get_moon_status(_illum, min_moon)
+
+            # Score
+            min_alt = row.get("Min_Alt_During_Transit", float("nan"))
+            dur_hr  = row.get("Duration_hr", float("nan"))
+            score, quality = _exoplanet_score(
+                row.get("Completeness", "Partial"),
+                min_alt, min_moon, dur_hr
+            )
+
+            # Duration formatted string
+            try:
+                dur_f = float(dur_hr)
+                if not math.isnan(dur_f) and dur_f > 0:
+                    h = int(dur_f)
+                    m = int(round((dur_f % 1) * 60))
+                    dur_str = f"{h}h {m:02d}m" if h > 0 else f"{m}m"
+                else:
+                    dur_str = "–"
+            except (TypeError, ValueError):
+                dur_str = "–"
+
+            # Date + time strings from datetime columns
+            def _fmt(dt, fmt):
+                try:
+                    return dt.strftime(fmt) if pd.notna(dt) else "–"
+                except Exception:
+                    return "–"
+
+            date_str    = _fmt(ingress_dt, "%b %d")
+            ingress_str = _fmt(ingress_dt, "%H:%M")
+            mid_str     = _fmt(mid_dt,     "%H:%M")
+            egress_str  = _fmt(egress_dt,  "%H:%M")
+
+            # Host star name (planet name minus the trailing " b/c/d")
+            planet_name = str(row.get("Planet", ""))
+            host_star = planet_name.rsplit(" ", 1)[0] if " " in planet_name else planet_name
+
+            # RA / Dec from Swarthmore coords column
+            ra_str  = str(row.get("RA",  "–"))
+            dec_str = str(row.get("Dec", "–"))
+
+            # _dec_deg for the Dec filter
+            try:
+                sc = SkyCoord(ra_str, dec_str, unit=(u.hourangle, u.deg), frame='icrs')
+                dec_deg = sc.dec.degree
+            except Exception:
+                dec_deg = float("nan")
+
+            rows.append({
+                "Planet":                  planet_name,
+                "Host Star":               host_star,
+                "Date":                    date_str,
+                "Ingress":                 ingress_str,
+                "Mid-Transit":             mid_str,
+                "Egress":                  egress_str,
+                "Duration":                dur_str,
+                "Completeness":            row.get("Completeness", "Partial"),
+                "Depth (mmag)":            row.get("Depth_mmag"),
+                "Min Alt During Transit":  (round(float(min_alt), 1)
+                                            if not (isinstance(min_alt, float) and math.isnan(min_alt))
+                                            else None),
+                "Moon Sep During Transit": moon_sep_str,
+                "Moon Status":             moon_status_str,
+                "Score":                   score,
+                "Quality":                 quality,
+                "RA":                      ra_str,
+                "Dec":                     dec_str,
+                "_dec_deg":                dec_deg,
+                "_ingress_dt":             ingress_dt,
+                "_egress_dt":              egress_dt,
+            })
+        except Exception:
+            pass  # drop failed rows — same pattern as comet/asteroid sections
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+
+    # Apply priority overrides from exoplanets.yaml
+    pri_map = cfg.get("priorities", {})
+    if pri_map:
+        result["Unistellar Priority"] = result["Planet"].map(
+            lambda p: pri_map.get(p, pri_map.get(p.rsplit(" ", 1)[0], ""))
+        )
+
+    return result
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
