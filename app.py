@@ -1435,6 +1435,13 @@ else:
 
 lat = st.sidebar.number_input("Latitude", key="lat", format="%.4f")
 lon = st.sidebar.number_input("Longitude", key="lon", format="%.4f")
+# Persist current location to sessionStorage whenever valid coordinates are present
+if _ss_js and (lat != 0.0 or lon != 0.0):
+    _ss_js(
+        js_expressions=f'sessionStorage.setItem("astro_lat", "{lat}"); sessionStorage.setItem("astro_lon", "{lon}")',
+        key="ss_write_loc",
+        want_output=False,
+    )
 
 # 2. Timezone
 tf = TimezoneFinder()
