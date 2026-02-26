@@ -34,3 +34,11 @@ temp/
 
 # Playwright MCP browser session files
 .playwright-mcp/
+
+# Internal planning / design docs (not for public repo)
+docs/plans/
+
+# Environment variable files (may contain API keys)
+.env
+.env.*
+*.env
