@@ -380,6 +380,10 @@ def _sort_df_like_chart(df, sort_option, priority_col=None):
         return df
 
 
+# GITHUB_TOKEN must be a fine-grained PAT with:
+#   - Contents: Read and Write  (to push YAML file updates)
+#   - Issues: Write             (to create admin notification issues)
+# Do NOT use a classic token with full repo or admin scopes.
 def _send_github_notification(title, body):
     """Creates a GitHub Issue to notify admin. Reusable across all sections."""
     token = st.secrets.get("GITHUB_TOKEN")
@@ -1762,7 +1766,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
     st.markdown("ℹ️ *Not in the list? Choose 'Custom Object...' to search SIMBAD for any star, galaxy, or nebula.*")
 
     if selected_dso == "Custom Object...":
-        obj_name_custom = st.text_input("Enter Object Name (e.g., M31, Vega, NGC 891)", value="", key="dso_custom_input")
+        obj_name_custom = st.text_input("Enter Object Name (e.g., M31, Vega, NGC 891)", value="", key="dso_custom_input", max_chars=200)
         if obj_name_custom:
             try:
                 with st.spinner(f"Resolving {obj_name_custom} via SIMBAD..."):
@@ -2003,7 +2007,7 @@ elif target_mode == "Comet (JPL Horizons)":
         # User: request a comet addition
         with st.expander("➕ Request a Comet Addition"):
             st.caption("Is a comet missing from the list? Submit a request — it will be verified with JPL Horizons before admin review.")
-            req_comet = st.text_input("Comet designation (e.g., C/2025 X1 or 29P)", key="req_comet_name")
+            req_comet = st.text_input("Comet designation (e.g., C/2025 X1 or 29P)", key="req_comet_name", max_chars=200)
             req_note = st.text_area("Optional note / reason", key="req_comet_note", height=60)
             if st.button("Submit Comet Request", key="btn_comet_req"):
                 if req_comet:
@@ -2345,7 +2349,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
         if selected_target == "Custom Comet...":
             st.caption("Search [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/) to find the comet's exact designation or SPK-ID, then enter it below.")
-            obj_name = st.text_input("Enter Comet Designation or SPK-ID (e.g., C/2020 F3, 90001202)", value="", key="comet_custom_input")
+            obj_name = st.text_input("Enter Comet Designation or SPK-ID (e.g., C/2020 F3, 90001202)", value="", key="comet_custom_input", max_chars=200)
         else:
             obj_name = _get_comet_jpl_id(selected_target)
 
@@ -2646,7 +2650,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
     # User: request an asteroid addition
     with st.expander("➕ Request an Asteroid Addition"):
         st.caption("Is an asteroid missing from the list? Submit a request — it will be verified with JPL Horizons before admin review.")
-        req_asteroid = st.text_input("Asteroid designation (e.g., 99942 Apophis, 433 Eros)", key="req_asteroid_name")
+        req_asteroid = st.text_input("Asteroid designation (e.g., 99942 Apophis, 433 Eros)", key="req_asteroid_name", max_chars=200)
         req_a_note = st.text_area("Optional note / reason", key="req_asteroid_note", height=60)
         if st.button("Submit Asteroid Request", key="btn_asteroid_req"):
             if req_asteroid:
@@ -2983,7 +2987,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
     if selected_target == "Custom Asteroid...":
         st.caption("Search [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html) or [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/) to find the exact designation, then enter it below.")
-        obj_name = st.text_input("Enter Asteroid Name or Designation (e.g., Eros, 2024 YR4, 99942)", value="", key="asteroid_custom_input")
+        obj_name = st.text_input("Enter Asteroid Name or Designation (e.g., Eros, 2024 YR4, 99942)", value="", key="asteroid_custom_input", max_chars=200)
     else:
         obj_name = _asteroid_jpl_id(selected_target)
 
