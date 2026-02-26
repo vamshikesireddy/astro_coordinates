@@ -1872,7 +1872,8 @@ elif target_mode == "Planet (JPL Horizons)":
                             section_key="planet",
                         )
                 else:
-                    st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az {az_range}, Moon Sep > {min_moon_sep}°) during the selected window.")
+                    _az_dirs_str = ", ".join(sorted(az_dirs)) if az_dirs else "All"
+                    st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az [{_az_dirs_str}], Moon Sep > {min_moon_sep}°) during the selected window.")
 
             with tab_filt_p:
                 st.caption("Planets not meeting your filters during the observation window.")
@@ -3656,7 +3657,8 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     ]
     
     if visible_points.empty:
-        st.warning(f"⚠️ **Visibility Warning:** Target does not meet filters (Alt [{min_alt}°, {max_alt}°], Az {az_range}) during window.")
+        _az_dirs_str = ", ".join(sorted(az_dirs)) if az_dirs else "All"
+        st.warning(f"⚠️ **Visibility Warning:** Target does not meet filters (Alt [{min_alt}°, {max_alt}°], Az [{_az_dirs_str}]) during window.")
     
     # Metrics
     max_alt = df["Altitude (°)"].max()
