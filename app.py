@@ -1629,7 +1629,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                     else:
                         for i_t, t_chk in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_d))
-                            if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
@@ -1814,7 +1814,7 @@ elif target_mode == "Planet (JPL Horizons)":
                     else:
                         for i, t_check in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_check), location=location))
-                            if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 sep_ok = (not moon_locs) or (moon_sep_deg(sc, moon_locs[i]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
@@ -2223,7 +2223,7 @@ elif target_mode == "Comet (JPL Horizons)":
                         else:
                             for i, t_chk in enumerate(check_times):
                                 aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_c))
-                                if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                                if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                     sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i]) >= min_moon_sep)
                                     if sep_ok:
                                         obs, reason = True, ""
@@ -2460,7 +2460,7 @@ elif target_mode == "Comet (JPL Horizons)":
                                 else:
                                     for _t_chk in _check_times:
                                         _aa = _sc.transform_to(AltAz(obstime=Time(_t_chk), location=_location_cat))
-                                        if min_alt <= _aa.alt.degree <= max_alt and az_range[0] <= _aa.az.degree <= az_range[1]:
+                                        if min_alt <= _aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(_aa.az.degree, az_dirs)):
                                             _obs, _reason = True, ""
                                             break
                                 _is_obs_cat.append(_obs)
@@ -2859,7 +2859,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
                     else:
                         for i_t, t_chk in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_a))
-                            if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
@@ -3322,7 +3322,7 @@ elif target_mode == "Cosmic Cataclysm":
                             # Quick AltAz check
                             frame = AltAz(obstime=Time(t_check), location=location)
                             aa = sc.transform_to(frame)
-                            if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 # Check Moon dynamically
                                 if moon_locs_dynamic:
                                     sep_dyn = moon_sep_deg(sc, moon_locs_dynamic[i])
@@ -3652,7 +3652,7 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     # Check if any point in the trajectory meets the criteria
     visible_points = df[
         (df["Altitude (°)"].between(min_alt, max_alt)) & 
-        (df["Azimuth (°)"].between(az_range[0], az_range[1]))
+        (df["Azimuth (°)"].apply(lambda az: not az_dirs or az_in_selected(az, az_dirs)))
     ]
     
     if visible_points.empty:
