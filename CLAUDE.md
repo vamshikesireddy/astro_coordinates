@@ -209,6 +209,32 @@ Three check times: start / mid / end of the observation window. `_min_sep` (wors
 **Sidebar filter note:**
 - The **"Min Moon Sep" sidebar filter** (slider) drives observability checks at the loop level — `sep_ok` is computed fresh from `moon_locs_chk[i]` for each target, NOT from the stored column. This is independent of the displayed Moon Status badge.
 
+### 7c. Azimuth Direction Filter (Compass Grid)
+
+Replaces the old `az_range` tuple slider (which couldn't express wrap-around ranges like NW→N→NE).
+
+**UI:** 8-direction checkbox grid (N/NE/E/SE/S/SW/W/NW) with degree range captions. Default: nothing checked = no filter.
+
+**Mental model:**
+- Nothing checked → no filter → all 360° shown (caption: `📡 No filter — showing all 360°`)
+- 1–7 checked → filter to selected directions only (caption: `📡 Filtering to: SE, S (2 of 8 directions)`)
+- All 8 checked → same as nothing checked (no filter)
+- Select All / Clear All buttons for convenience
+
+**Key module-level definitions (`app.py` ~line 46):**
+- `_AZ_OCTANTS` — dict mapping direction → list of `(lo, hi)` degree tuples. N has two tuples to handle wrap-around: `[(337.5, 360.0), (0.0, 22.5)]`.
+- `_AZ_LABELS` — ordered list `["N", "NE", "E", "SE", "S", "SW", "W", "NW"]`
+- `_AZ_CAPTIONS` — human-readable degree ranges shown under each checkbox
+- `az_in_selected(az_deg, selected_dirs)` — returns `True` if `az_deg` falls in any selected octant
+
+**Filter call pattern** (used in all 6 observability loops + trajectory check):
+```python
+(not az_dirs or az_in_selected(aa.az.degree, az_dirs))
+```
+Empty `az_dirs` = short-circuit to True (no filter). Non-empty = check octants.
+
+**Session state keys:** `az_N`, `az_NE`, `az_E`, `az_SE`, `az_S`, `az_SW`, `az_W`, `az_NW` — all default `False`.
+
 **Status thresholds** (`get_moon_status(illumination, separation)`):
 - 🌑 Dark Sky: illumination < 15%
 - ⛔ Avoid: illumination ≥ 15% and sep < 30°

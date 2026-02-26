@@ -1259,7 +1259,7 @@ with st.expander("ℹ️ How to Use"):
     *   **Location:** Search for a city, use Browser GPS, or enter coordinates manually.
     *   **Time:** Set your observation start date and time.
     *   **Duration:** Choose how long you plan to image.
-    *   **Observational Filters:** Set Altitude range (Min/Max), Azimuth direction (compass grid — select one or more of N/NE/E/SE/S/SW/W/NW), and Moon Separation to filter targets.
+    *   **Observational Filters:** Set Altitude range (Min/Max), Azimuth direction, and Moon Separation to filter targets. The **Azimuth compass grid** (N/NE/E/SE/S/SW/W/NW) defaults to no filter (all 360°). Check one or more directions to restrict results to only objects visible in those areas — useful if your sky is partially blocked (e.g. check SE only for a south-east facing balcony).
 
     ### 2. Choose a Target
     Select one of the six modes:
