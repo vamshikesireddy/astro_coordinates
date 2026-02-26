@@ -394,6 +394,17 @@ def _send_github_notification(title, body):
             print(f"Failed to send notification: {e}")
 
 
+def _sanitize_csv_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Escape leading formula characters in string columns for safe CSV export."""
+    _FORMULA_PREFIXES = ('=', '+', '-', '@')
+    df_safe = df.copy()
+    for col in df_safe.select_dtypes(include='object').columns:
+        df_safe[col] = df_safe[col].apply(
+            lambda x: f"'{x}" if isinstance(x, str) and x and x[0] in _FORMULA_PREFIXES else x
+        )
+    return df_safe
+
+
 def build_night_plan(df_obs, sort_by="set"):
     """Build a time-sorted target list for tonight.
 
@@ -734,7 +745,7 @@ def _render_night_plan_builder(
         _csv_src = csv_data if csv_data is not None else df_obs
         st.download_button(
             csv_label,
-            data=_csv_src.to_csv(index=False).encode('utf-8'),
+            data=_sanitize_csv_df(_csv_src).to_csv(index=False).encode('utf-8'),
             file_name=csv_filename,
             mime="text/csv",
             use_container_width=True,
@@ -896,7 +907,7 @@ def _render_night_plan_builder(
                     with _dl1:
                         st.download_button(
                             "📥 Download Plan (CSV)",
-                            data=_plan_display.to_csv(index=False).encode('utf-8'),
+                            data=_sanitize_csv_df(_plan_display).to_csv(index=False).encode('utf-8'),
                             file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.csv",
                             mime="text/csv",
                             use_container_width=True,
@@ -1701,7 +1712,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
 
             st.download_button(
                 "Download DSO Data (CSV)",
-                data=df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=_sanitize_csv_df(df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
                 file_name=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
                 mime="text/csv"
             )
@@ -2320,7 +2331,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
                 st.download_button(
                     "Download Comet Data (CSV)",
-                    data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                    data=_sanitize_csv_df(df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
                     file_name="comets_visibility.csv",
                     mime="text/csv"
                 )
@@ -2521,10 +2532,10 @@ elif target_mode == "Comet (JPL Horizons)":
 
                         st.download_button(
                             "Download Catalog Data (CSV)",
-                            data=_df_cat.drop(
+                            data=_sanitize_csv_df(_df_cat.drop(
                                 columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"],
                                 errors="ignore"
-                            ).to_csv(index=False).encode("utf-8"),
+                            )).to_csv(index=False).encode("utf-8"),
                             file_name="catalog_comets_visibility.csv",
                             mime="text/csv"
                         )
@@ -2958,7 +2969,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
             st.download_button(
                 "Download Asteroid Data (CSV)",
-                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=_sanitize_csv_df(df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
                 file_name="asteroids_visibility.csv",
                 mime="text/csv"
             )
@@ -3724,7 +3735,7 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
 
     st.download_button(
         label="Download CSV",
-        data=df.to_csv(index=False).encode('utf-8'),
+        data=_sanitize_csv_df(df).to_csv(index=False).encode('utf-8'),
         file_name=f"{safe_name}_{date_str}_trajectory.csv",
         mime="text/csv",
     )
