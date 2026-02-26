@@ -44,6 +44,21 @@ from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_c
 # Suppress Astropy warnings about coordinate frame transformations (Geocentric vs Topocentric)
 warnings.filterwarnings("ignore", message=".*transforming other coordinates.*")
 
+# ── App-wide configuration constants ──────────────────────────────────────
+CONFIG = {
+    # Moon status thresholds
+    "moon_dark_sky_illum": 15,    # illumination % → Dark Sky below this
+    "moon_avoid_sep":      30,    # moon sep ° → Avoid below this
+    "moon_caution_sep":    60,    # moon sep ° → Caution below this
+    # Gantt chart sizing
+    "gantt_row_height":    60,    # px per row
+    "gantt_min_height":   250,    # minimum chart height px
+    # Sidebar defaults
+    "default_alt_min":     20,    # altitude filter lower bound
+    "default_session_hour":18,    # default observation start hour
+    "default_dur_idx":      8,    # duration selectbox default index (720 min)
+}
+
 # ── Azimuth octant definitions ────────────────────────────────────────────
 _AZ_OCTANTS = {
     "N":  [(337.5, 360.0), (0.0, 22.5)],
@@ -78,11 +93,11 @@ def az_in_selected(az_deg: float, selected_dirs: set) -> bool:
 st.set_page_config(page_title="AstroPlanner", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
 def get_moon_status(illumination, separation):
-    if illumination < 15:
+    if illumination < CONFIG["moon_dark_sky_illum"]:
         return "🌑 Dark Sky"
-    elif separation < 30:
+    elif separation < CONFIG["moon_avoid_sep"]:
         return "⛔ Avoid"
-    elif separation < 60:
+    elif separation < CONFIG["moon_caution_sep"]:
         return "⚠️ Caution"
     else:
         return "✅ Safe"
@@ -238,8 +253,8 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
             sort_arg = list(chart_data['Name'])
 
     # Dynamic height: Ensure minimum height to prevent clipping of axis/title
-    row_height = 60
-    chart_height = max(len(chart_data) * row_height, 250)
+    row_height = CONFIG["gantt_row_height"]
+    chart_height = max(len(chart_data) * row_height, CONFIG["gantt_min_height"])
 
     # Base Chart
     base = alt.Chart(chart_data).encode(
@@ -1389,7 +1404,7 @@ if st.session_state.last_timezone != timezone_str:
     if now_local.hour >= 18:
         st.session_state.selected_time = now_local.time()
     else:
-        st.session_state.selected_time = now_local.replace(hour=18, minute=0, second=0, microsecond=0).time()
+        st.session_state.selected_time = now_local.replace(hour=CONFIG["default_session_hour"], minute=0, second=0, microsecond=0).time()
 
     # Update widget keys to reflect changes immediately
     st.session_state['_new_date'] = st.session_state.selected_date
@@ -1406,7 +1421,7 @@ if 'selected_time' not in st.session_state:
     if now.hour >= 18:
         st.session_state['selected_time'] = now.time()
     else:
-        st.session_state['selected_time'] = now.replace(hour=18, minute=0, second=0, microsecond=0).time()
+        st.session_state['selected_time'] = now.replace(hour=CONFIG["default_session_hour"], minute=0, second=0, microsecond=0).time()
 
 def update_date():
     st.session_state.selected_date = st.session_state._new_date
@@ -1434,7 +1449,7 @@ _duration_options_min = [60, 120, 180, 240, 300, 360, 480, 600, 720, 840, 960, 1
 
 # Persist selected index so it survives a format toggle without resetting the value
 if 'dur_idx' not in st.session_state:
-    st.session_state.dur_idx = 8  # default: 720 min = 12 hrs
+    st.session_state.dur_idx = CONFIG["default_dur_idx"]  # 720 min = 12 hrs
 
 _dur_fmt = st.sidebar.radio("Display as", ["hrs", "min"], horizontal=True, key="dur_fmt")
 if _dur_fmt == "hrs":
@@ -1456,7 +1471,7 @@ obs_end_naive = (start_time + timedelta(minutes=duration)).replace(tzinfo=None)
 # 5. Observational Filters
 st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
-alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (20, 90), help="Target must be within this altitude range (Min to Max).")
+alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (CONFIG["default_alt_min"], 90), help="Target must be within this altitude range (Min to Max).")
 min_alt, max_alt = alt_range
 # Compute az_dirs from session state before rendering so the status
 # caption can appear directly under the heading (above the checkboxes).
