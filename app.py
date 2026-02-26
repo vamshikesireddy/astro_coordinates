@@ -1452,7 +1452,20 @@ st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
 alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (20, 90), help="Target must be within this altitude range (Min to Max).")
 min_alt, max_alt = alt_range
+# Compute az_dirs from session state before rendering so the status
+# caption can appear directly under the heading (above the checkboxes).
+for _d in _AZ_LABELS:
+    if f"az_{_d}" not in st.session_state:
+        st.session_state[f"az_{_d}"] = True
+az_dirs = {_d for _d in _AZ_LABELS if st.session_state.get(f"az_{_d}", True)}
+_az_selected_count = len(az_dirs)
+_az_status = (
+    "📡 No filter — showing all 360°"
+    if _az_selected_count == 0 or _az_selected_count == len(_AZ_LABELS)
+    else f"📡 Filtering to: {', '.join(d for d in _AZ_LABELS if d in az_dirs)} ({_az_selected_count} of {len(_AZ_LABELS)} directions)"
+)
 st.sidebar.markdown("**🧭 Azimuth Direction**")
+st.sidebar.caption(_az_status)
 _az_cols = st.sidebar.columns(2)
 _az_btn_cols = st.sidebar.columns(2)
 with _az_btn_cols[0]:
@@ -1463,21 +1476,12 @@ with _az_btn_cols[1]:
     if st.button("Clear All", key="az_clear_all", use_container_width=True):
         for _d in _AZ_LABELS:
             st.session_state[f"az_{_d}"] = False
-for _d in _AZ_LABELS:
-    if f"az_{_d}" not in st.session_state:
-        st.session_state[f"az_{_d}"] = True
 az_dirs = set()
 for _i, _d in enumerate(_AZ_LABELS):
     with _az_cols[_i % 2]:
         if st.checkbox(_d, key=f"az_{_d}"):
             az_dirs.add(_d)
         st.caption(_AZ_CAPTIONS[_d])
-_az_selected_count = len(az_dirs)
-if _az_selected_count == 0 or _az_selected_count == len(_AZ_LABELS):
-    st.sidebar.caption("📡 No filter — showing all 360°")
-else:
-    _az_ordered = [d for d in _AZ_LABELS if d in az_dirs]
-    st.sidebar.caption(f"📡 Filtering to: {', '.join(_az_ordered)} ({_az_selected_count} of {len(_AZ_LABELS)} directions)")
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
