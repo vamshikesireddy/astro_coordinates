@@ -1704,7 +1704,14 @@ sky_coord = None
 resolved = False
 
 
-if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
+def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs,
+                       min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+                       show_obs_window, obs_start_naive, obs_end_naive, local_tz,
+                       lat, lon):
+    name = "Unknown"
+    sky_coord = None
+    resolved = False
+
     dso_config = load_dso_config()
 
     # --- Category & Type Filters ---
@@ -1911,7 +1918,17 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
             )
             resolved = True
 
-elif target_mode == "Planet (JPL Horizons)":
+    return name, sky_coord, resolved, None
+
+
+def render_planet_section(location, start_time, duration, min_alt, max_alt, az_dirs,
+                          min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+                          show_obs_window, obs_start_naive, obs_end_naive, local_tz,
+                          lat, lon):
+    name = "Unknown"
+    sky_coord = None
+    resolved = False
+
     planet_map = {
         "Mercury": "199",
         "Venus": "299",
@@ -1922,14 +1939,13 @@ elif target_mode == "Planet (JPL Horizons)":
         "Neptune": "899",
         "Pluto": "999"
     }
-    
+
     if lat is None or lon is None:
         st.info("Set location in sidebar to see visibility summary for all planets.")
     else:
         df_planets = get_planet_summary(lat, lon, start_time)
         if not df_planets.empty:
             # --- Observability check ---
-            location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
             is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
 
             for idx, row in df_planets.iterrows():
@@ -2012,16 +2028,16 @@ elif target_mode == "Planet (JPL Horizons)":
                     st.dataframe(df_filt_p[show_filt_p], hide_index=True, width="stretch")
 
     selected_target = st.selectbox("Select a Planet", list(planet_map.keys()))
-    
+
     # Use JPL Horizons IDs to avoid ambiguity (e.g. Mercury vs Mercury Barycenter)
     obj_name = planet_map[selected_target]
-    
+
     if obj_name:
         try:
             with st.spinner(f"Querying JPL Horizons for {selected_target}..."):
                 utc_start = start_time.astimezone(pytz.utc)
                 _, sky_coord = resolve_planet(obj_name, obs_time_str=utc_start.strftime('%Y-%m-%d %H:%M:%S'))
-            
+
             name = selected_target
             st.success(f"✅ Resolved: **{name}**")
             resolved = True
@@ -2029,7 +2045,18 @@ elif target_mode == "Planet (JPL Horizons)":
             print(f"[ERROR] JPL planet resolve failed for '{obj_name}': {e}", file=sys.stderr)
             st.error("Could not fetch position data from JPL. Please try again.")
 
-elif target_mode == "Comet (JPL Horizons)":
+    return name, sky_coord, resolved, obj_name
+
+
+def render_comet_section(location, start_time, duration, min_alt, max_alt, az_dirs,
+                         min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+                         show_obs_window, obs_start_naive, obs_end_naive, local_tz,
+                         lat, lon):
+    name = "Unknown"
+    sky_coord = None
+    resolved = False
+    obj_name = None
+
     _comet_view = st.radio(
         "View", ["\U0001f4cb Watchlist", "\U0001f52d Explore Catalog"],
         horizontal=True, key="comet_view_mode"
@@ -2466,7 +2493,6 @@ elif target_mode == "Comet (JPL Horizons)":
                 print(f"[ERROR] JPL Horizons comet resolve failed for '{obj_name}': {e}", file=sys.stderr)
                 st.error("Could not fetch position data from JPL. Please try again.")
 
-
     elif _comet_view == "\U0001f52d Explore Catalog":
         cat_updated, cat_entries = load_comet_catalog()
         if not cat_entries:
@@ -2674,8 +2700,18 @@ elif target_mode == "Comet (JPL Horizons)":
             else:
                 st.caption("Adjust filters above to find comets, then select one for a trajectory.")
 
+    return name, sky_coord, resolved, obj_name
 
-elif target_mode == "Asteroid (JPL Horizons)":
+
+def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az_dirs,
+                            min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+                            show_obs_window, obs_start_naive, obs_end_naive, local_tz,
+                            lat, lon):
+    name = "Unknown"
+    sky_coord = None
+    resolved = False
+    obj_name = None
+
     asteroid_config = load_asteroids_config()
     active_asteroids = [a for a in asteroid_config["asteroids"] if a not in asteroid_config.get("cancelled", [])]
     priority_set = set(_asteroid_priority_name(e) for e in asteroid_config.get("unistellar_priority", []))
@@ -3094,10 +3130,21 @@ elif target_mode == "Asteroid (JPL Horizons)":
             print(f"[ERROR] JPL Horizons asteroid resolve failed for '{obj_name}': {e}", file=sys.stderr)
             st.error("Could not fetch position data from JPL. Please try again.")
 
-elif target_mode == "Cosmic Cataclysm":
+    return name, sky_coord, resolved, obj_name
+
+
+def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_dirs,
+                          min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+                          show_obs_window, obs_start_naive, obs_end_naive, local_tz,
+                          lat, lon):
+    name = "Unknown"
+    sky_coord = None
+    resolved = False
+    obj_name = None
+
     status_msg = st.empty()
     status_msg.info("Fetching latest alerts from Unistellar...")
-    
+
     # --- Global Configuration (YAML) ---
     TARGETS_FILE = "targets.yaml"
     PENDING_FILE = "pending_requests.txt"
@@ -3112,17 +3159,17 @@ elif target_mode == "Cosmic Cataclysm":
         # 1. Save locally (for immediate use)
         with open(TARGETS_FILE, "w") as f:
             yaml.dump(config, f, default_flow_style=False)
-            
+
         # 2. Sync to GitHub (for persistence)
         token = st.secrets.get("GITHUB_TOKEN")
         repo_name = st.secrets.get("GITHUB_REPO")
-        
+
         if token and repo_name and Github:
             try:
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 yaml_str = yaml.dump(config, default_flow_style=False)
-                
+
                 try:
                     contents = repo.get_contents(TARGETS_FILE)
                     repo.update_file(contents.path, "Update targets.yaml (Admin)", yaml_str, contents.sha)
@@ -3137,7 +3184,7 @@ elif target_mode == "Cosmic Cataclysm":
         """Creates a GitHub Issue to notify admin of new requests."""
         token = st.secrets.get("GITHUB_TOKEN")
         repo_name = st.secrets.get("GITHUB_REPO")
-        
+
         if token and repo_name and Github:
             try:
                 g = Github(token)
@@ -3151,9 +3198,9 @@ elif target_mode == "Cosmic Cataclysm":
     # 1. Report UI (Public)
     with st.expander("🚩 Report Invalid/Cancelled Event / Suggest Priority"):
         st.caption("Report invalid events or suggest priority changes.")
-        
+
         tab_block, tab_pri = st.tabs(["🚫 Block Target", "⭐ Suggest Priority"])
-        
+
         with tab_block:
             c1, c2 = st.columns([2, 1])
             b_name = c1.text_input("Event Name", key="rep_b_name")
@@ -3162,10 +3209,10 @@ elif target_mode == "Cosmic Cataclysm":
                 if b_name:
                     with open(PENDING_FILE, "a") as f:
                         f.write(f"{b_name.replace('|', '\\|')}|{b_reason}\n")
-                    
+
                     send_notification(f"🚫 Block Request: {b_name}", f"**Target:** {b_name}\n**Reason:** {b_reason}\n\n_Submitted via Astro Planner App_")
                     st.success(f"Report for '{b_name}' submitted.")
-        
+
         with tab_pri:
             c1, c2 = st.columns([2, 1])
             p_name = c1.text_input("Event Name", key="rep_p_name")
@@ -3174,7 +3221,7 @@ elif target_mode == "Cosmic Cataclysm":
                 if p_name:
                     with open(PENDING_FILE, "a") as f:
                         f.write(f"{p_name.replace('|', '\\|')}|Priority: {p_val}\n")
-                    
+
                     send_notification(f"⭐ Priority Request: {p_name}", f"**Target:** {p_name}\n**New Priority:** {p_val}\n\n_Submitted via Astro Planner App_")
                     st.success(f"Priority for '{p_name}' submitted.")
 
@@ -3191,13 +3238,13 @@ elif target_mode == "Cosmic Cataclysm":
     if current_config.get("cancelled") or current_config.get("too_faint"):
         with st.expander("🚫 Invalid & Cancelled Events"):
             st.caption("These targets are hidden from the main list:")
-            
+
             blocked_data = []
             for t in current_config.get("cancelled", []):
                 blocked_data.append({"Target": t, "Reason": "Cancelled"})
             for t in current_config.get("too_faint", []):
                 blocked_data.append({"Target": t, "Reason": "Invalid (Too Faint)"})
-            
+
             if blocked_data:
                 st.dataframe(pd.DataFrame(blocked_data), hide_index=True, width="stretch")
 
@@ -3207,7 +3254,7 @@ elif target_mode == "Cosmic Cataclysm":
         with st.expander("🔐 Admin Review"):
             admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_input")
             correct_pass = st.secrets.get("ADMIN_PASSWORD")
-            
+
             if correct_pass and admin_pass == correct_pass:
                 # --- Pending Requests ---
                 st.markdown("### Pending Requests")
@@ -3219,18 +3266,18 @@ elif target_mode == "Cosmic Cataclysm":
 
                 if not lines:
                     st.info("No pending requests.")
-                
+
                 for i, line in enumerate(lines):
                     parts = line.split('|')
                     if len(parts) != 2: continue
                     r_name, r_reason = parts
-                    
+
                     st.text(f"{r_name} ({r_reason})")
                     c1, c2 = st.columns(2)
-                    
+
                     if c1.button("✅ Accept", key=f"acc_{i}_{r_name}"):
                         config = load_targets_config()
-                        
+
                         if r_reason.startswith("Priority:"):
                             # Handle Priority
                             val = r_reason.split(":")[1].strip()
@@ -3246,23 +3293,23 @@ elif target_mode == "Cosmic Cataclysm":
                             if key not in config: config[key] = []
                             if r_name not in config[key]:
                                 config[key].append(r_name)
-                        
+
                         save_targets_config(config)
-                        
+
                         # Remove from pending
                         remaining = [l for l in lines if l != line]
                         with open(PENDING_FILE, "w") as f: f.write("\n".join(remaining) + "\n")
                         st.rerun()
-                        
+
                     if c2.button("❌ Reject", key=f"rej_{i}_{r_name}"):
                         remaining = [l for l in lines if l != line]
                         with open(PENDING_FILE, "w") as f: f.write("\n".join(remaining) + "\n")
                         st.rerun()
-                
+
                 # --- Priority Management ---
                 st.markdown("---")
                 st.markdown("### Manage Priorities")
-                
+
                 # List existing priorities with delete option
                 config = load_targets_config()
                 if config.get("priorities"):
@@ -3274,7 +3321,7 @@ elif target_mode == "Cosmic Cataclysm":
                             del config["priorities"][t_name]
                             save_targets_config(config)
                             st.rerun()
-                
+
                 st.caption("Add New Manually:")
                 p_name = st.text_input("Target Name for Priority")
                 p_val = st.selectbox("New Priority", ["LOW", "HIGH", "URGENT"])
@@ -3347,26 +3394,26 @@ elif target_mode == "Cosmic Cataclysm":
         # Try to identify columns dynamically
         df_alerts.columns = df_alerts.columns.str.strip()
         cols = df_alerts.columns.tolist()
-        
+
         # Look for 'Name' (preferred) or 'Target'
         target_col = next((c for c in cols if c.lower() in ['name', 'target', 'object']), None)
         ra_col = next((c for c in cols if c.lower() in ['ra', 'r.a.']), None)
         dec_col = next((c for c in cols if c.lower() in ['dec', 'declination']), None)
-        
+
         if target_col:
             # --- Apply Configuration (Blocklist & Priorities) ---
             config = load_targets_config()
-            
+
             # 1. Blocking
             blocked_targets = config.get("cancelled", []) + config.get("too_faint", [])
             if blocked_targets:
                 # Filter out rows where target name contains any blocked string (case-insensitive)
                 df_alerts = df_alerts[~df_alerts[target_col].astype(str).apply(lambda x: any(b.lower() in x.lower() for b in blocked_targets))]
-            
+
             # 2. Priorities
             # Find Priority column (e.g., 'Pri', 'Priority')
             pri_col = next((c for c in cols if c.lower().startswith('pri')), None)
-            
+
             # If not found, create it so we can display priorities
             if not pri_col:
                 pri_col = "Priority"
@@ -3381,10 +3428,10 @@ elif target_mode == "Cosmic Cataclysm":
 
             # --- Calculate Planning Info for Table ---
             st.caption(f"Calculating visibility for {len(df_alerts)} targets based on your location...")
-            
+
             planning_data = []
             location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
-            
+
             # Create a progress bar if there are many targets
             progress_bar = st.progress(0)
             total_rows = len(df_alerts)
@@ -3392,17 +3439,17 @@ elif target_mode == "Cosmic Cataclysm":
             for idx, row in df_alerts.iterrows():
                 # Update progress
                 if idx % 5 == 0: progress_bar.progress(min(idx / total_rows, 1.0))
-                
+
                 try:
                     # Parse coordinates
                     ra_val = row[ra_col]
                     dec_val = row[dec_col]
                     # Handle potential string formatting issues
                     sc = SkyCoord(str(ra_val), str(dec_val), frame='icrs')
-                    
+
                     # Calculate details
                     details = calculate_planning_info(sc, location, start_time)
-                    
+
                     # --- Observability Check ---
                     is_obs = True
                     filt_reason = ""
@@ -3467,12 +3514,12 @@ elif target_mode == "Cosmic Cataclysm":
                     d['is_observable'] = False
                     d['filter_reason'] = "Data/Parse Error"
                     planning_data.append(d)
-            
+
             progress_bar.empty()
-            
+
             # Create new enriched DataFrame
             df_display = pd.DataFrame(planning_data)
-            
+
             # Identify Duration column (keep numeric for correct sort; format applied via column_config)
             dur_col = next((c for c in df_display.columns if 'dur' in c.lower()), None)
 
@@ -3529,17 +3576,17 @@ elif target_mode == "Cosmic Cataclysm":
 
             # Reorder columns to put Name and Planning info first
             priority_cols = [target_col, 'Constellation', 'Rise', 'Transit', 'Set', 'Status']
-            
+
             # Ensure Priority is visible and upfront
             if pri_col and pri_col in df_display.columns:
                 priority_cols.insert(1, pri_col)
 
             other_cols = [c for c in df_display.columns if c not in priority_cols and c != link_col]
-            
+
             final_order = priority_cols + other_cols
             if link_col:
                 final_order.append(link_col)
-            
+
             df_display = df_display[final_order]
 
             # Dec filter: objects outside range go to Unobservable tab with reason
@@ -3553,16 +3600,16 @@ elif target_mode == "Cosmic Cataclysm":
             # Split Data
             df_obs = df_display[df_display['is_observable'] == True].copy()
             df_filt = df_display[df_display['is_observable'] == False].copy()
-            
+
             # Filter columns for display
             cols_to_remove_keywords = ['exposure', 'cadence', 'gain', 'exp', 'cad']
             actual_cols_to_drop = [
-                col for col in df_display.columns 
+                col for col in df_display.columns
                 if any(keyword in col.lower() for keyword in cols_to_remove_keywords) or col in ['is_observable', 'filter_reason']
             ]
             # Also drop hidden columns used for plotting
             hidden_cols = [c for c in df_display.columns if c.startswith('_')]
-            
+
             # Helper to style and display
             def display_styled_table(df_in):
                 _dt_in = df_in.copy()
@@ -3571,17 +3618,17 @@ elif target_mode == "Cosmic Cataclysm":
                 if disc_col and disc_col in _dt_in.columns and '_disc_sort' in _dt_in.columns:
                     _dt_in[disc_col] = _dt_in['_disc_sort']
                 final_table = _dt_in.drop(columns=actual_cols_to_drop + hidden_cols, errors='ignore')
-                
+
                 # Force DeepLink to the very end
                 curr_cols = final_table.columns.tolist()
                 p_cols = [c for c in priority_cols if c in curr_cols]
                 l_cols = [c for c in curr_cols if c == link_col]
                 o_cols = [c for c in curr_cols if c not in p_cols and c not in l_cols]
-                
+
                 # Order: Priority -> Others -> DeepLink
                 new_order = p_cols + o_cols + l_cols
                 final_table = final_table[new_order]
-                
+
                 # Configure columns
                 col_config = dict(_MOON_SEP_COL_CONFIG)
                 if link_col and link_col in final_table.columns:
@@ -3612,7 +3659,7 @@ elif target_mode == "Cosmic Cataclysm":
 
             # Tabs
             tab_obs, tab_filt = st.tabs([f"🎯 Observable ({len(df_obs)})", f"👻 Unobservable ({len(df_filt)})"])
-            
+
             with tab_obs:
                 st.subheader("Available Targets")
 
@@ -3631,7 +3678,7 @@ elif target_mode == "Cosmic Cataclysm":
                 <span style='background-color: #ffb74d; color: black; padding: 2px 6px; border-radius: 4px;'>HIGH</span>
                 <span style='background-color: #c8e6c9; color: black; padding: 2px 6px; border-radius: 4px;'>LOW</span>
                 """, unsafe_allow_html=True)
-            
+
             with tab_filt:
                 st.caption("Targets hidden because they do not meet criteria within the **Observation Window** (Start Time + Duration) selected in the sidebar.")
                 if not df_filt.empty:
@@ -3668,16 +3715,16 @@ elif target_mode == "Cosmic Cataclysm":
             st.subheader("Select Target for Trajectory")
             targets = df_display[target_col].unique()
             obj_name = st.selectbox("Select Target", targets)
-            
+
             if obj_name:
                 row = df_alerts[df_alerts[target_col] == obj_name].iloc[0]
                 name = obj_name
-                
+
                 if ra_col and dec_col:
                     ra_val = row[ra_col]
                     dec_val = row[dec_col]
                     st.caption(f"Coordinates: RA {ra_val}, Dec {dec_val}")
-                    
+
                     try:
                         # Handle potential string formatting issues
                         sky_coord = SkyCoord(str(ra_val), str(dec_val), frame='icrs')
@@ -3691,6 +3738,44 @@ elif target_mode == "Cosmic Cataclysm":
             st.dataframe(df_alerts, width="stretch")
     elif lat is not None and lon is not None:
         st.error("Failed to scrape data. Please check the scraper logs.")
+
+    return name, sky_coord, resolved, obj_name
+
+
+if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
+    name, sky_coord, resolved, _ = render_dso_section(
+        location, start_time, duration, min_alt, max_alt, az_dirs,
+        min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+        show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon
+    )
+
+elif target_mode == "Planet (JPL Horizons)":
+    name, sky_coord, resolved, obj_name = render_planet_section(
+        location, start_time, duration, min_alt, max_alt, az_dirs,
+        min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+        show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon
+    )
+
+elif target_mode == "Comet (JPL Horizons)":
+    name, sky_coord, resolved, obj_name = render_comet_section(
+        location, start_time, duration, min_alt, max_alt, az_dirs,
+        min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+        show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon
+    )
+
+elif target_mode == "Asteroid (JPL Horizons)":
+    name, sky_coord, resolved, obj_name = render_asteroid_section(
+        location, start_time, duration, min_alt, max_alt, az_dirs,
+        min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+        show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon
+    )
+
+elif target_mode == "Cosmic Cataclysm":
+    name, sky_coord, resolved, obj_name = render_cosmic_section(
+        location, start_time, duration, min_alt, max_alt, az_dirs,
+        min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+        show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon
+    )
 
 elif target_mode == "Manual RA/Dec":
     col1, col2, col3 = st.columns(3)
