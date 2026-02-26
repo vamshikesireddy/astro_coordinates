@@ -378,6 +378,87 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
 
 
 
+def plot_transit_gantt(df_events: pd.DataFrame, local_tz) -> None:
+    """Render a 7-day Gantt chart of transit windows, colored by Quality tier.
+
+    Each row = one planet. Each bar = one transit event window (ingress → egress).
+    Color encodes Quality tier: HIGH=lime, MED=cyan, LOW=yellow, SKIP=gray.
+    Rows sorted by Score descending.
+    Legend shown below the chart.
+
+    Args:
+        df_events: DataFrame with _ingress_dt, _egress_dt, Planet, Quality,
+                   Score, Completeness, Duration columns.
+        local_tz:  Local timezone (unused in chart, kept for API consistency).
+    """
+    if df_events.empty or "_ingress_dt" not in df_events.columns:
+        st.info("No transit events to display.")
+        return
+
+    _COLOR_MAP = {
+        "HIGH": "#00ff00",   # lime
+        "MED":  "#00ffff",   # cyan
+        "LOW":  "#ffff00",   # yellow
+        "SKIP": "#888888",   # gray
+    }
+
+    chart_data = df_events.copy()
+    chart_data["start"] = pd.to_datetime(chart_data["_ingress_dt"], errors="coerce")
+    chart_data["end"]   = pd.to_datetime(chart_data["_egress_dt"],  errors="coerce")
+    chart_data = chart_data.dropna(subset=["start", "end"])
+    if chart_data.empty:
+        st.info("No transit events with valid times to display.")
+        return
+
+    chart_data["color"] = chart_data["Quality"].map(_COLOR_MAP).fillna("#888888")
+
+    # Sort planets by their best score descending for y-axis order
+    planet_order = (
+        chart_data.groupby("Planet")["Score"]
+        .max()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+
+    bars = (
+        alt.Chart(chart_data)
+        .mark_bar(height=18, cornerRadiusEnd=3)
+        .encode(
+            x=alt.X("start:T", title="Date / Time (local)",
+                    axis=alt.Axis(format="%b %d %H:%M", labelAngle=-30)),
+            x2=alt.X2("end:T"),
+            y=alt.Y("Planet:N", title=None, sort=planet_order),
+            color=alt.Color("color:N", scale=None, legend=None),
+            tooltip=[
+                alt.Tooltip("Planet:N"),
+                alt.Tooltip("Completeness:N"),
+                alt.Tooltip("Duration:N"),
+                alt.Tooltip("Score:Q"),
+                alt.Tooltip("Quality:N"),
+                alt.Tooltip("start:T", title="Ingress", format="%b %d %H:%M"),
+                alt.Tooltip("end:T",   title="Egress",  format="%b %d %H:%M"),
+            ],
+        )
+        .properties(
+            height=max(
+                CONFIG["gantt_min_height"],
+                len(planet_order) * CONFIG["gantt_row_height"],
+            )
+        )
+    )
+
+    st.altair_chart(bars, use_container_width=True)
+
+    # Quality legend
+    _leg_cols = st.columns(len(_COLOR_MAP))
+    for col, (tier, color) in zip(_leg_cols, _COLOR_MAP.items()):
+        col.markdown(
+            f'<span style="color:{color}; font-weight:bold">■ {tier}</span>',
+            unsafe_allow_html=True,
+        )
+
+
+
 # GITHUB_TOKEN must be a fine-grained PAT with:
 #   - Contents: Read and Write  (to push YAML file updates)
 #   - Issues: Write             (to create admin notification issues)
