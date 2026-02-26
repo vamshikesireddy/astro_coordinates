@@ -1,12 +1,14 @@
 import re
 import sys
 import asyncio
+import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
-
 from scrapling.fetchers import StealthyFetcher
+
+logger = logging.getLogger(__name__)
 
 _browser_ready = False
 
@@ -22,7 +24,7 @@ def _ensure_browser():
             check=True, capture_output=True, text=True, timeout=120,
         )
     except Exception as e:
-        print(f"Browser auto-install note: {e}")
+        logger.warning(f"Browser auto-install note: {e}")
     _browser_ready = True
 
 
@@ -63,7 +65,7 @@ def scrape_unistellar_table():
     url = "https://alerts.unistellaroptics.com/transient/events.html"
 
     try:
-        print("Connecting to Unistellar Alerts...")
+        logger.debug("Connecting to Unistellar Alerts...")
         _ensure_browser()
         page = _fetch_page(url, headless=True, network_idle=True)
 
@@ -76,7 +78,7 @@ def scrape_unistellar_table():
         rows = page.css("table tbody tr")
         data = []
 
-        print(f"Found {len(rows)} targets. Extracting data...")
+        logger.debug(f"Found {len(rows)} targets. Extracting data...")
 
         for row in rows:
             cells = row.css("td")
@@ -95,13 +97,11 @@ def scrape_unistellar_table():
         # Create DataFrame
         df = pd.DataFrame(data, columns=headers)
 
-        print("\nSuccess! Sample of scraped data:")
-        print(df.head(3))
-        print(f"\nExtracted {len(df)} rows.")
+        logger.debug(f"Extracted {len(df)} rows from Unistellar Alerts.")
         return df
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"An error occurred scraping Unistellar Alerts: {e}")
         return None
 
 
@@ -129,7 +129,7 @@ def scrape_unistellar_priority_comets():
         found = list(dict.fromkeys(_COMET_PATTERN.findall(text)))
         return found
     except Exception as e:
-        print(f"Failed to scrape Unistellar missions page: {e}")
+        logger.error(f"Failed to scrape Unistellar missions page: {e}")
         return []
 
 
@@ -203,7 +203,7 @@ def scrape_unistellar_priority_asteroids():
 
         return list(dict.fromkeys(found))
     except Exception as e:
-        print(f"Failed to scrape Unistellar planetary defense page: {e}")
+        logger.error(f"Failed to scrape Unistellar planetary defense page: {e}")
         return []
 
 
