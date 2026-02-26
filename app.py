@@ -2013,7 +2013,7 @@ elif target_mode == "Comet (JPL Horizons)":
                             utc_check = start_time.astimezone(pytz.utc)
                             resolve_horizons(jpl_id, obs_time_str=utc_check.strftime('%Y-%m-%d %H:%M:%S'))
                             with open(COMET_PENDING_FILE, "a") as f:
-                                f.write(f"{req_comet}|Add|{req_note or 'No note'}\n")
+                                f.write(f"{req_comet.replace('|', '\\|')}|Add|{(req_note or 'No note').replace('|', '\\|')}\n")
                             _send_github_notification(
                                 f"☄️ Comet Add Request: {req_comet}",
                                 f"**Comet:** {req_comet}\n**JPL ID:** {jpl_id}\n**Status:** ✅ JPL Verified\n**Note:** {req_note or 'None'}\n\n_Submitted via Astro Planner_"
@@ -2656,7 +2656,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
                         utc_check = start_time.astimezone(pytz.utc)
                         resolve_horizons(jpl_id, obs_time_str=utc_check.strftime('%Y-%m-%d %H:%M:%S'))
                         with open(ASTEROID_PENDING_FILE, "a") as f:
-                            f.write(f"{req_asteroid}|Add|{req_a_note or 'No note'}\n")
+                            f.write(f"{req_asteroid.replace('|', '\\|')}|Add|{(req_a_note or 'No note').replace('|', '\\|')}\n")
                         _send_github_notification(
                             f"🪨 Asteroid Add Request: {req_asteroid}",
                             f"**Asteroid:** {req_asteroid}\n**JPL ID:** {jpl_id}\n**Status:** ✅ JPL Verified\n**Note:** {req_a_note or 'None'}\n\n_Submitted via Astro Planner_"
@@ -3065,7 +3065,7 @@ elif target_mode == "Cosmic Cataclysm":
             if st.button("Submit Block Report", key="btn_block"):
                 if b_name:
                     with open(PENDING_FILE, "a") as f:
-                        f.write(f"{b_name}|{b_reason}\n")
+                        f.write(f"{b_name.replace('|', '\\|')}|{b_reason}\n")
                     
                     send_notification(f"🚫 Block Request: {b_name}", f"**Target:** {b_name}\n**Reason:** {b_reason}\n\n_Submitted via Astro Planner App_")
                     st.success(f"Report for '{b_name}' submitted.")
@@ -3077,7 +3077,7 @@ elif target_mode == "Cosmic Cataclysm":
             if st.button("Submit Priority", key="btn_pri"):
                 if p_name:
                     with open(PENDING_FILE, "a") as f:
-                        f.write(f"{p_name}|Priority: {p_val}\n")
+                        f.write(f"{p_name.replace('|', '\\|')}|Priority: {p_val}\n")
                     
                     send_notification(f"⭐ Priority Request: {p_name}", f"**Target:** {p_name}\n**New Priority:** {p_val}\n\n_Submitted via Astro Planner App_")
                     st.success(f"Priority for '{p_name}' submitted.")
