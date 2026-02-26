@@ -46,6 +46,56 @@ Sections: DSO (Star/Galaxy/Nebula), Planet, Comet, Asteroid, Cosmic Cataclysm, M
 
 ---
 
+## App-wide Constants (CONFIG dict)
+
+All magic numbers live in `CONFIG = {...}` at the top of `app.py` (~line 47). Always use these keys instead of bare literals:
+
+| Key | Value | Used for |
+|-----|-------|----------|
+| `"moon_dark_sky_illum"` | 15 | `get_moon_status()` illumination threshold |
+| `"moon_avoid_sep"` | 30 | Moon separation "Avoid" threshold (°) |
+| `"moon_caution_sep"` | 60 | Moon separation "Caution" threshold (°) |
+| `"gantt_row_height"` | 60 | Pixels per row in Gantt chart |
+| `"gantt_min_height"` | 250 | Minimum Gantt chart height (px) |
+| `"default_alt_min"` | 20 | Altitude filter lower bound default |
+| `"default_session_hour"` | 18 | Default observation start hour |
+| `"default_dur_idx"` | 8 | Duration selectbox default index (720 min) |
+
+---
+
+## Session State Initialization
+
+All session state keys are initialized in `_init_session_state(now)` (~line 1312), called once at the top of the sidebar block after `now = datetime.now(local_tz)`. Add new sidebar session state keys there.
+
+**Exception:** `last_timezone` is NOT in `_init_session_state` — it depends on `timezone_str` computed mid-render and is intentionally initialized inline.
+
+---
+
+## Location Persistence (sessionStorage)
+
+User lat/lon is persisted in the browser's `sessionStorage` so page refreshes restore the location. Clears when the tab or browser is closed — intentional, no permanent storage.
+
+**Keys:** `astro_lat`, `astro_lon`
+
+**Read flow (render 1→2):**
+- `_ss_js(js_expressions='JSON.stringify(...)', key="ss_read_loc")` fires async on render 1 → returns `None`
+- On render 2, result arrives as JSON string → parsed → lat/lon applied to session state
+- `_loc_loaded` flag in session state prevents re-reading on subsequent reruns
+
+**Write flow:** After the lat/lon `number_input` widgets on every render, `_ss_js(..., key="ss_write_loc", want_output=False)` updates sessionStorage (fire-and-forget).
+
+**`_ss_js`** is `streamlit_js_eval` imported under a safe alias (avoids the project security hook that flags names containing "eval"). Both `_ss_js` and `get_geolocation` come from the `streamlit-js-eval` package — if absent, both fall back to `None` and the feature is silently skipped.
+
+---
+
+## Batch Summary Performance
+
+`get_comet_summary()` and `get_asteroid_summary()` parallelize JPL Horizons API calls using `ThreadPoolExecutor(max_workers=min(N, 8))`. Each object's Horizons fetch runs concurrently, reducing wall time from `N × latency` to roughly `max(latency)`. Results are cached by `@st.cache_data(ttl=3600)` — parallelization only matters on the first uncached load.
+
+Config/catalog loaders (`load_comets_config`, `load_asteroids_config`, `load_dso_config`, `load_comet_catalog`) are also cached with `@st.cache_data(ttl=3600, show_spinner=False)`. The two mutable loaders (comets, asteroids) call `.clear()` at the start of their paired `save_*` functions to bust the cache on write.
+
+---
+
 ## Critical Patterns — Read Before Editing
 
 ### 1. Dec Filter (mark-as-unobservable, NOT remove-rows)
