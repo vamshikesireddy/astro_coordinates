@@ -67,6 +67,62 @@ from backend.app_logic import (
 )
 
 
+def _exoplanet_score(completeness: str, min_alt: float, moon_sep: float,
+                     duration_hr: float) -> tuple:
+    """Compute exoplanet transit observability score (0-100) and quality tier.
+
+    Args:
+        completeness: "Complete" or "Partial"
+        min_alt:      Minimum altitude during transit window (degrees). NaN -> 0.
+        moon_sep:     Moon separation during transit window (degrees). NaN -> 0.
+        duration_hr:  Transit duration in hours. NaN -> 0.
+
+    Returns:
+        (score: int, quality: str)  quality is one of HIGH/MED/LOW/SKIP
+    """
+    import math
+
+    def _safe(v):
+        try:
+            f = float(v)
+            return 0.0 if math.isnan(f) else f
+        except (TypeError, ValueError):
+            return 0.0
+
+    # Completeness (30 pts)
+    pts_complete = 30 if completeness == "Complete" else 15
+
+    # Min altitude (30 pts)
+    alt = _safe(min_alt)
+    if alt >= 45:   pts_alt = 30
+    elif alt >= 30: pts_alt = 20
+    elif alt >= 20: pts_alt = 10
+    else:           pts_alt = 0
+
+    # Moon separation (25 pts)
+    sep = _safe(moon_sep)
+    if sep > 60:   pts_moon = 25
+    elif sep > 30: pts_moon = 15
+    elif sep > 10: pts_moon = 5
+    else:          pts_moon = 0
+
+    # Duration (15 pts)
+    dur = _safe(duration_hr)
+    if dur >= 3:   pts_dur = 15
+    elif dur >= 2: pts_dur = 10
+    elif dur >= 1: pts_dur = 5
+    else:          pts_dur = 0
+
+    score = pts_complete + pts_alt + pts_moon + pts_dur
+
+    if score >= 70:   quality = "HIGH"
+    elif score >= 50: quality = "MED"
+    elif score >= 30: quality = "LOW"
+    else:             quality = "SKIP"
+
+    return int(score), quality
+
+
 st.set_page_config(page_title="AstroPlanner", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
 @st.cache_data(ttl=3600, show_spinner="Calculating planetary visibility...")
