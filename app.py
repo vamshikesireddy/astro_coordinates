@@ -24,17 +24,17 @@ from astropy.time import Time
 try:
     from streamlit_js_eval import get_geolocation
 except ImportError:
-    get_geolocation = None
+    get_geolocation = None  # optional: GPS checkbox in sidebar disabled without this
 
 try:
     from streamlit_searchbox import st_searchbox
 except ImportError:
-    st_searchbox = None
+    st_searchbox = None     # optional: address autocomplete falls back to plain text_input
 
 try:
     from github import Github
 except ImportError:
-    Github = None
+    Github = None           # optional: admin panel GitHub sync disabled without this
 
 # Import from local modules
 from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
