@@ -1,5 +1,6 @@
 import streamlit as st
 import warnings
+import sys
 import yaml
 import json
 import os
@@ -42,6 +43,37 @@ from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_c
 
 # Suppress Astropy warnings about coordinate frame transformations (Geocentric vs Topocentric)
 warnings.filterwarnings("ignore", message=".*transforming other coordinates.*")
+
+# ── Azimuth octant definitions ────────────────────────────────────────────
+_AZ_OCTANTS = {
+    "N":  [(337.5, 360.0), (0.0, 22.5)],
+    "NE": [(22.5,  67.5)],
+    "E":  [(67.5,  112.5)],
+    "SE": [(112.5, 157.5)],
+    "S":  [(157.5, 202.5)],
+    "SW": [(202.5, 247.5)],
+    "W":  [(247.5, 292.5)],
+    "NW": [(292.5, 337.5)],
+}
+_AZ_LABELS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+_AZ_CAPTIONS = {
+    "N":  "337.5–22.5°",
+    "NE": "22.5–67.5°",
+    "E":  "67.5–112.5°",
+    "SE": "112.5–157.5°",
+    "S":  "157.5–202.5°",
+    "SW": "202.5–247.5°",
+    "W":  "247.5–292.5°",
+    "NW": "292.5–337.5°",
+}
+
+def az_in_selected(az_deg: float, selected_dirs: set) -> bool:
+    """Return True if az_deg falls within any of the selected compass octants."""
+    for d in selected_dirs:
+        for lo, hi in _AZ_OCTANTS[d]:
+            if lo <= az_deg < hi:
+                return True
+    return False
 
 st.set_page_config(page_title="AstroPlanner", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
@@ -348,6 +380,10 @@ def _sort_df_like_chart(df, sort_option, priority_col=None):
         return df
 
 
+# GITHUB_TOKEN must be a fine-grained PAT with:
+#   - Contents: Read and Write  (to push YAML file updates)
+#   - Issues: Write             (to create admin notification issues)
+# Do NOT use a classic token with full repo or admin scopes.
 def _send_github_notification(title, body):
     """Creates a GitHub Issue to notify admin. Reusable across all sections."""
     token = st.secrets.get("GITHUB_TOKEN")
@@ -360,6 +396,17 @@ def _send_github_notification(title, body):
             repo.create_issue(title=title, body=body, assignee=me.login)
         except Exception as e:
             print(f"Failed to send notification: {e}")
+
+
+def _sanitize_csv_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Escape leading formula characters in string columns for safe CSV export."""
+    _FORMULA_PREFIXES = ('=', '+', '-', '@')
+    df_safe = df.copy()
+    for col in df_safe.select_dtypes(include='object').columns:
+        df_safe[col] = df_safe[col].apply(
+            lambda x: f"'{x}" if isinstance(x, str) and x and x[0] in _FORMULA_PREFIXES else x
+        )
+    return df_safe
 
 
 def build_night_plan(df_obs, sort_by="set"):
@@ -702,7 +749,7 @@ def _render_night_plan_builder(
         _csv_src = csv_data if csv_data is not None else df_obs
         st.download_button(
             csv_label,
-            data=_csv_src.to_csv(index=False).encode('utf-8'),
+            data=_sanitize_csv_df(_csv_src).to_csv(index=False).encode('utf-8'),
             file_name=csv_filename,
             mime="text/csv",
             use_container_width=True,
@@ -864,7 +911,7 @@ def _render_night_plan_builder(
                     with _dl1:
                         st.download_button(
                             "📥 Download Plan (CSV)",
-                            data=_plan_display.to_csv(index=False).encode('utf-8'),
+                            data=_sanitize_csv_df(_plan_display).to_csv(index=False).encode('utf-8'),
                             file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.csv",
                             mime="text/csv",
                             use_container_width=True,
@@ -969,7 +1016,7 @@ def save_comets_config(config):
                 repo.create_file(COMETS_FILE, "Create comets.yaml (Admin)", yaml_str)
                 st.toast("✅ comets.yaml created on GitHub")
         except Exception as e:
-            st.error(f"GitHub Sync Error: {e}")
+            st.error(f"GitHub Sync Error: {e}")  # admin panel — full error OK
 
 
 @st.cache_data(ttl=3600, show_spinner="Calculating comet visibility...")
@@ -1080,7 +1127,7 @@ def save_asteroids_config(config):
                 repo.create_file(ASTEROIDS_FILE, "Create asteroids.yaml (Admin)", yaml_str)
                 st.toast("✅ asteroids.yaml created on GitHub")
         except Exception as e:
-            st.error(f"GitHub Sync Error: {e}")
+            st.error(f"GitHub Sync Error: {e}")  # admin panel — full error OK
 
 
 @st.cache_data(ttl=3600, show_spinner="Calculating asteroid visibility...")
@@ -1212,7 +1259,7 @@ with st.expander("ℹ️ How to Use"):
     *   **Location:** Search for a city, use Browser GPS, or enter coordinates manually.
     *   **Time:** Set your observation start date and time.
     *   **Duration:** Choose how long you plan to image.
-    *   **Observational Filters:** Set Altitude range (Min/Max), Azimuth, and Moon Separation to filter targets.
+    *   **Observational Filters:** Set Altitude range (Min/Max), Azimuth direction, and Moon Separation to filter targets. The **Azimuth compass grid** (N/NE/E/SE/S/SW/W/NW) defaults to no filter (all 360°). Check one or more directions to restrict results to only objects visible in those areas — useful if your sky is partially blocked (e.g. check SE only for a south-east facing balcony).
 
     ### 2. Choose a Target
     Select one of the six modes:
@@ -1405,7 +1452,36 @@ st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
 alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (20, 90), help="Target must be within this altitude range (Min to Max).")
 min_alt, max_alt = alt_range
-az_range = st.sidebar.slider("Azimuth Window (°)", 0, 360, (0, 360), help="Target must be within this compass direction (0=N, 90=E, 180=S, 270=W).")
+# Compute az_dirs from session state before rendering so the status
+# caption can appear directly under the heading (above the checkboxes).
+for _d in _AZ_LABELS:
+    if f"az_{_d}" not in st.session_state:
+        st.session_state[f"az_{_d}"] = False
+az_dirs = {_d for _d in _AZ_LABELS if st.session_state.get(f"az_{_d}", False)}
+_az_selected_count = len(az_dirs)
+_az_status = (
+    "📡 No filter — showing all 360°"
+    if _az_selected_count == 0 or _az_selected_count == len(_AZ_LABELS)
+    else f"📡 Filtering to: {', '.join(d for d in _AZ_LABELS if d in az_dirs)} ({_az_selected_count} of {len(_AZ_LABELS)} directions)"
+)
+st.sidebar.markdown("**🧭 Azimuth Direction**")
+st.sidebar.caption(_az_status)
+_az_cols = st.sidebar.columns(2)
+_az_btn_cols = st.sidebar.columns(2)
+with _az_btn_cols[0]:
+    if st.button("Select All", key="az_select_all", use_container_width=True):
+        for _d in _AZ_LABELS:
+            st.session_state[f"az_{_d}"] = True
+with _az_btn_cols[1]:
+    if st.button("Clear All", key="az_clear_all", use_container_width=True):
+        for _d in _AZ_LABELS:
+            st.session_state[f"az_{_d}"] = False
+az_dirs = set()
+for _i, _d in enumerate(_AZ_LABELS):
+    with _az_cols[_i % 2]:
+        if st.checkbox(_d, key=f"az_{_d}"):
+            az_dirs.add(_d)
+        st.caption(_AZ_CAPTIONS[_d])
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
@@ -1582,7 +1658,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                     else:
                         for i_t, t_chk in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_d))
-                            if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
@@ -1653,7 +1729,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
 
             st.download_button(
                 "Download DSO Data (CSV)",
-                data=df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=_sanitize_csv_df(df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
                 file_name=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
                 mime="text/csv"
             )
@@ -1703,7 +1779,7 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
     st.markdown("ℹ️ *Not in the list? Choose 'Custom Object...' to search SIMBAD for any star, galaxy, or nebula.*")
 
     if selected_dso == "Custom Object...":
-        obj_name_custom = st.text_input("Enter Object Name (e.g., M31, Vega, NGC 891)", value="", key="dso_custom_input")
+        obj_name_custom = st.text_input("Enter Object Name (e.g., M31, Vega, NGC 891)", value="", key="dso_custom_input", max_chars=200)
         if obj_name_custom:
             try:
                 with st.spinner(f"Resolving {obj_name_custom} via SIMBAD..."):
@@ -1711,7 +1787,8 @@ if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
                 st.success(f"✅ Resolved: **{name}** (RA: {sky_coord.ra.to_string(unit=u.hour, sep=':', precision=1)}, Dec: {sky_coord.dec.to_string(sep=':', precision=1)})")
                 resolved = True
             except Exception as e:
-                st.error(f"Could not resolve object: {e}")
+                print(f"[ERROR] SIMBAD resolve failed for '{obj_name_custom}': {e}", file=sys.stderr)
+                st.error("Could not resolve object name. Check spelling and try again.")
     elif traj_dso_list:
         sel_idx = target_options.index(selected_dso)
         if sel_idx < len(traj_dso_list):
@@ -1767,7 +1844,7 @@ elif target_mode == "Planet (JPL Horizons)":
                     else:
                         for i, t_check in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_check), location=location))
-                            if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 sep_ok = (not moon_locs) or (moon_sep_deg(sc, moon_locs[i]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
@@ -1825,7 +1902,9 @@ elif target_mode == "Planet (JPL Horizons)":
                             section_key="planet",
                         )
                 else:
-                    st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az {az_range}, Moon Sep > {min_moon_sep}°) during the selected window.")
+                    _az_order = {d: i for i, d in enumerate(_AZ_LABELS)}
+                    _az_dirs_str = ", ".join(sorted(az_dirs, key=lambda d: _az_order[d])) if az_dirs else "All"
+                    st.warning(f"No planets meet your criteria (Alt [{min_alt}°, {max_alt}°], Az [{_az_dirs_str}], Moon Sep > {min_moon_sep}°) during the selected window.")
 
             with tab_filt_p:
                 st.caption("Planets not meeting your filters during the observation window.")
@@ -1848,7 +1927,8 @@ elif target_mode == "Planet (JPL Horizons)":
             st.success(f"✅ Resolved: **{name}**")
             resolved = True
         except Exception as e:
-            st.error(f"Could not resolve object: {e}")
+            print(f"[ERROR] JPL planet resolve failed for '{obj_name}': {e}", file=sys.stderr)
+            st.error("Could not fetch position data from JPL. Please try again.")
 
 elif target_mode == "Comet (JPL Horizons)":
     _comet_view = st.radio(
@@ -1940,7 +2020,7 @@ elif target_mode == "Comet (JPL Horizons)":
         # User: request a comet addition
         with st.expander("➕ Request a Comet Addition"):
             st.caption("Is a comet missing from the list? Submit a request — it will be verified with JPL Horizons before admin review.")
-            req_comet = st.text_input("Comet designation (e.g., C/2025 X1 or 29P)", key="req_comet_name")
+            req_comet = st.text_input("Comet designation (e.g., C/2025 X1 or 29P)", key="req_comet_name", max_chars=200)
             req_note = st.text_area("Optional note / reason", key="req_comet_note", height=60)
             if st.button("Submit Comet Request", key="btn_comet_req"):
                 if req_comet:
@@ -1950,14 +2030,15 @@ elif target_mode == "Comet (JPL Horizons)":
                             utc_check = start_time.astimezone(pytz.utc)
                             resolve_horizons(jpl_id, obs_time_str=utc_check.strftime('%Y-%m-%d %H:%M:%S'))
                             with open(COMET_PENDING_FILE, "a") as f:
-                                f.write(f"{req_comet}|Add|{req_note or 'No note'}\n")
+                                f.write(f"{req_comet.replace('|', '\\|')}|Add|{(req_note or 'No note').replace('|', '\\|')}\n")
                             _send_github_notification(
                                 f"☄️ Comet Add Request: {req_comet}",
                                 f"**Comet:** {req_comet}\n**JPL ID:** {jpl_id}\n**Status:** ✅ JPL Verified\n**Note:** {req_note or 'None'}\n\n_Submitted via Astro Planner_"
                             )
                             st.success(f"✅ '{req_comet}' verified and request submitted for admin review.")
                         except Exception as e:
-                            st.error(f"❌ JPL could not resolve '{jpl_id}': {e}")
+                            print(f"[ERROR] JPL could not resolve comet '{jpl_id}': {e}", file=sys.stderr)
+                            st.error("Could not fetch position data from JPL. Please try again.")
 
         # Display active Unistellar priority targets
         if priority_set:
@@ -2176,7 +2257,7 @@ elif target_mode == "Comet (JPL Horizons)":
                         else:
                             for i, t_chk in enumerate(check_times):
                                 aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_c))
-                                if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                                if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                     sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i]) >= min_moon_sep)
                                     if sep_ok:
                                         obs, reason = True, ""
@@ -2267,7 +2348,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
                 st.download_button(
                     "Download Comet Data (CSV)",
-                    data=df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                    data=_sanitize_csv_df(df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
                     file_name="comets_visibility.csv",
                     mime="text/csv"
                 )
@@ -2281,7 +2362,7 @@ elif target_mode == "Comet (JPL Horizons)":
 
         if selected_target == "Custom Comet...":
             st.caption("Search [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/) to find the comet's exact designation or SPK-ID, then enter it below.")
-            obj_name = st.text_input("Enter Comet Designation or SPK-ID (e.g., C/2020 F3, 90001202)", value="", key="comet_custom_input")
+            obj_name = st.text_input("Enter Comet Designation or SPK-ID (e.g., C/2020 F3, 90001202)", value="", key="comet_custom_input", max_chars=200)
         else:
             obj_name = _get_comet_jpl_id(selected_target)
 
@@ -2293,7 +2374,8 @@ elif target_mode == "Comet (JPL Horizons)":
                 st.success(f"✅ Resolved: **{name}**")
                 resolved = True
             except Exception as e:
-                st.error(f"Could not resolve object: {e}")
+                print(f"[ERROR] JPL Horizons comet resolve failed for '{obj_name}': {e}", file=sys.stderr)
+                st.error("Could not fetch position data from JPL. Please try again.")
 
 
     elif _comet_view == "\U0001f52d Explore Catalog":
@@ -2413,7 +2495,7 @@ elif target_mode == "Comet (JPL Horizons)":
                                 else:
                                     for _t_chk in _check_times:
                                         _aa = _sc.transform_to(AltAz(obstime=Time(_t_chk), location=_location_cat))
-                                        if min_alt <= _aa.alt.degree <= max_alt and az_range[0] <= _aa.az.degree <= az_range[1]:
+                                        if min_alt <= _aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(_aa.az.degree, az_dirs)):
                                             _obs, _reason = True, ""
                                             break
                                 _is_obs_cat.append(_obs)
@@ -2467,10 +2549,10 @@ elif target_mode == "Comet (JPL Horizons)":
 
                         st.download_button(
                             "Download Catalog Data (CSV)",
-                            data=_df_cat.drop(
+                            data=_sanitize_csv_df(_df_cat.drop(
                                 columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime", "Moon Sep (°)", "Moon Status"],
                                 errors="ignore"
-                            ).to_csv(index=False).encode("utf-8"),
+                            )).to_csv(index=False).encode("utf-8"),
                             file_name="catalog_comets_visibility.csv",
                             mime="text/csv"
                         )
@@ -2581,7 +2663,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
     # User: request an asteroid addition
     with st.expander("➕ Request an Asteroid Addition"):
         st.caption("Is an asteroid missing from the list? Submit a request — it will be verified with JPL Horizons before admin review.")
-        req_asteroid = st.text_input("Asteroid designation (e.g., 99942 Apophis, 433 Eros)", key="req_asteroid_name")
+        req_asteroid = st.text_input("Asteroid designation (e.g., 99942 Apophis, 433 Eros)", key="req_asteroid_name", max_chars=200)
         req_a_note = st.text_area("Optional note / reason", key="req_asteroid_note", height=60)
         if st.button("Submit Asteroid Request", key="btn_asteroid_req"):
             if req_asteroid:
@@ -2591,14 +2673,15 @@ elif target_mode == "Asteroid (JPL Horizons)":
                         utc_check = start_time.astimezone(pytz.utc)
                         resolve_horizons(jpl_id, obs_time_str=utc_check.strftime('%Y-%m-%d %H:%M:%S'))
                         with open(ASTEROID_PENDING_FILE, "a") as f:
-                            f.write(f"{req_asteroid}|Add|{req_a_note or 'No note'}\n")
+                            f.write(f"{req_asteroid.replace('|', '\\|')}|Add|{(req_a_note or 'No note').replace('|', '\\|')}\n")
                         _send_github_notification(
                             f"🪨 Asteroid Add Request: {req_asteroid}",
                             f"**Asteroid:** {req_asteroid}\n**JPL ID:** {jpl_id}\n**Status:** ✅ JPL Verified\n**Note:** {req_a_note or 'None'}\n\n_Submitted via Astro Planner_"
                         )
                         st.success(f"✅ '{req_asteroid}' verified and request submitted for admin review.")
                     except Exception as e:
-                        st.error(f"❌ JPL could not resolve '{jpl_id}': {e}")
+                        print(f"[ERROR] JPL could not resolve asteroid '{jpl_id}': {e}", file=sys.stderr)
+                        st.error("Could not fetch position data from JPL. Please try again.")
 
     # Priority asteroids expander
     if priority_set:
@@ -2812,7 +2895,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
                     else:
                         for i_t, t_chk in enumerate(check_times):
                             aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location_a))
-                            if min_alt <= aa.alt.degree <= max_alt and az_range[0] <= aa.az.degree <= az_range[1]:
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
                                 if sep_ok:
                                     obs, reason = True, ""
@@ -2903,7 +2986,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
             st.download_button(
                 "Download Asteroid Data (CSV)",
-                data=df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore").to_csv(index=False).encode("utf-8"),
+                data=_sanitize_csv_df(df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
                 file_name="asteroids_visibility.csv",
                 mime="text/csv"
             )
@@ -2917,7 +3000,7 @@ elif target_mode == "Asteroid (JPL Horizons)":
 
     if selected_target == "Custom Asteroid...":
         st.caption("Search [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html) or [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/) to find the exact designation, then enter it below.")
-        obj_name = st.text_input("Enter Asteroid Name or Designation (e.g., Eros, 2024 YR4, 99942)", value="", key="asteroid_custom_input")
+        obj_name = st.text_input("Enter Asteroid Name or Designation (e.g., Eros, 2024 YR4, 99942)", value="", key="asteroid_custom_input", max_chars=200)
     else:
         obj_name = _asteroid_jpl_id(selected_target)
 
@@ -2929,7 +3012,8 @@ elif target_mode == "Asteroid (JPL Horizons)":
             st.success(f"✅ Resolved: **{name}**")
             resolved = True
         except Exception as e:
-            st.error(f"Could not resolve object: {e}")
+            print(f"[ERROR] JPL Horizons asteroid resolve failed for '{obj_name}': {e}", file=sys.stderr)
+            st.error("Could not fetch position data from JPL. Please try again.")
 
 elif target_mode == "Cosmic Cataclysm":
     status_msg = st.empty()
@@ -2968,7 +3052,7 @@ elif target_mode == "Cosmic Cataclysm":
                     repo.create_file(TARGETS_FILE, "Create targets.yaml (Admin)", yaml_str)
                     st.toast("✅ targets.yaml created on GitHub")
             except Exception as e:
-                st.error(f"GitHub Sync Error: {e}")
+                st.error(f"GitHub Sync Error: {e}")  # admin panel — full error OK
 
     def send_notification(title, body):
         """Creates a GitHub Issue to notify admin of new requests."""
@@ -2998,7 +3082,7 @@ elif target_mode == "Cosmic Cataclysm":
             if st.button("Submit Block Report", key="btn_block"):
                 if b_name:
                     with open(PENDING_FILE, "a") as f:
-                        f.write(f"{b_name}|{b_reason}\n")
+                        f.write(f"{b_name.replace('|', '\\|')}|{b_reason}\n")
                     
                     send_notification(f"🚫 Block Request: {b_name}", f"**Target:** {b_name}\n**Reason:** {b_reason}\n\n_Submitted via Astro Planner App_")
                     st.success(f"Report for '{b_name}' submitted.")
@@ -3010,7 +3094,7 @@ elif target_mode == "Cosmic Cataclysm":
             if st.button("Submit Priority", key="btn_pri"):
                 if p_name:
                     with open(PENDING_FILE, "a") as f:
-                        f.write(f"{p_name}|Priority: {p_val}\n")
+                        f.write(f"{p_name.replace('|', '\\|')}|Priority: {p_val}\n")
                     
                     send_notification(f"⭐ Priority Request: {p_name}", f"**Target:** {p_name}\n**New Priority:** {p_val}\n\n_Submitted via Astro Planner App_")
                     st.success(f"Priority for '{p_name}' submitted.")
@@ -3275,7 +3359,7 @@ elif target_mode == "Cosmic Cataclysm":
                             # Quick AltAz check
                             frame = AltAz(obstime=Time(t_check), location=location)
                             aa = sc.transform_to(frame)
-                            if min_alt <= aa.alt.degree <= max_alt and (az_range[0] <= aa.az.degree <= az_range[1]):
+                            if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
                                 # Check Moon dynamically
                                 if moon_locs_dynamic:
                                     sep_dyn = moon_sep_deg(sc, moon_locs_dynamic[i])
@@ -3521,7 +3605,8 @@ elif target_mode == "Cosmic Cataclysm":
                         resolved = True
                         st.success(f"✅ Resolved: **{name}**")
                     except Exception as e:
-                        st.error(f"Error parsing coordinates: {e}")
+                        print(f"[ERROR] Coordinate parse failed for '{name}' (RA={ra_val}, Dec={dec_val}): {e}", file=sys.stderr)
+                        st.error("Calculation failed for this object. Try a different target.")
         else:
             st.error(f"Could not find 'Name' column. Found: {cols}")
             st.dataframe(df_alerts, width="stretch")
@@ -3543,7 +3628,8 @@ elif target_mode == "Manual RA/Dec":
             st.success(f"✅ Coordinates parsed successfully.")
             resolved = True
         except Exception as e:
-            st.error(f"Invalid coordinates format: {e}")
+            print(f"[ERROR] Invalid manual RA/Dec coordinates (RA='{ra_input}', Dec='{dec_input}'): {e}", file=sys.stderr)
+            st.error("Invalid coordinates format. Please use formats like '15h59m30s' for RA and '25d55m13s' for Dec.")
 
 # ---------------------------
 # MAIN: Calculation & Output
@@ -3564,13 +3650,15 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
             try:
                 ephem_coords = get_horizons_ephemerides(obj_name, start_time, duration_minutes=duration, step_minutes=10)
             except Exception as e:
-                st.warning(f"Could not fetch detailed ephemerides ({e}). Using fixed coordinates.")
+                print(f"[ERROR] Could not fetch detailed ephemerides for '{obj_name}': {e}", file=sys.stderr)
+                st.warning("Could not fetch position data from JPL. Please try again. Using fixed coordinates.")
     elif target_mode == "Planet (JPL Horizons)":
         with st.spinner("Fetching planetary ephemerides from JPL..."):
             try:
                 ephem_coords = get_planet_ephemerides(obj_name, start_time, duration_minutes=duration, step_minutes=10)
             except Exception as e:
-                st.warning(f"Could not fetch planetary ephemerides ({e}). Using fixed coordinates.")
+                print(f"[ERROR] Could not fetch planetary ephemerides for '{obj_name}': {e}", file=sys.stderr)
+                st.warning("Could not fetch position data from JPL. Please try again. Using fixed coordinates.")
 
     with st.spinner("Calculating trajectory..."):
         results = compute_trajectory(sky_coord, location, start_time, duration_minutes=duration, ephemeris_coords=ephem_coords)
@@ -3605,11 +3693,13 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
     # Check if any point in the trajectory meets the criteria
     visible_points = df[
         (df["Altitude (°)"].between(min_alt, max_alt)) & 
-        (df["Azimuth (°)"].between(az_range[0], az_range[1]))
+        (df["Azimuth (°)"].apply(lambda az: not az_dirs or az_in_selected(az, az_dirs)))
     ]
     
     if visible_points.empty:
-        st.warning(f"⚠️ **Visibility Warning:** Target does not meet filters (Alt [{min_alt}°, {max_alt}°], Az {az_range}) during window.")
+        _az_order = {d: i for i, d in enumerate(_AZ_LABELS)}
+        _az_dirs_str = ", ".join(sorted(az_dirs, key=lambda d: _az_order[d])) if az_dirs else "All"
+        st.warning(f"⚠️ **Visibility Warning:** Target does not meet filters (Alt [{min_alt}°, {max_alt}°], Az [{_az_dirs_str}]) during window.")
     
     # Metrics
     max_alt = df["Altitude (°)"].max()
@@ -3662,7 +3752,7 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
 
     st.download_button(
         label="Download CSV",
-        data=df.to_csv(index=False).encode('utf-8'),
+        data=_sanitize_csv_df(df).to_csv(index=False).encode('utf-8'),
         file_name=f"{safe_name}_{date_str}_trajectory.csv",
         mime="text/csv",
     )
