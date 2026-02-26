@@ -1453,7 +1453,8 @@ st.sidebar.caption("Applies to lists and visibility warnings.")
 alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (20, 90), help="Target must be within this altitude range (Min to Max).")
 min_alt, max_alt = alt_range
 st.sidebar.markdown("**🧭 Azimuth Direction**")
-_az_cols = st.sidebar.columns(4)
+st.sidebar.caption("All 360° by default. Check specific directions to show only objects visible in those areas (e.g. SE only).")
+_az_cols = st.sidebar.columns(2)
 _az_btn_cols = st.sidebar.columns(2)
 with _az_btn_cols[0]:
     if st.button("Select All", key="az_select_all", use_container_width=True):
@@ -1468,7 +1469,7 @@ for _d in _AZ_LABELS:
         st.session_state[f"az_{_d}"] = True
 az_dirs = set()
 for _i, _d in enumerate(_AZ_LABELS):
-    with _az_cols[_i % 4]:
+    with _az_cols[_i % 2]:
         if st.checkbox(_d, key=f"az_{_d}"):
             az_dirs.add(_d)
         st.caption(_AZ_CAPTIONS[_d])
