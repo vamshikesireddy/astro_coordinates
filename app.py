@@ -2097,7 +2097,7 @@ st.header("1. Choose Target")
 
 target_mode = st.radio(
     "Select Object Type:",
-    ["Star/Galaxy/Nebula (SIMBAD)", "Planet (JPL Horizons)", "Comet (JPL Horizons)", "Asteroid (JPL Horizons)", "Cosmic Cataclysm", "Manual RA/Dec"],
+    ["Star/Galaxy/Nebula (SIMBAD)", "Planet (JPL Horizons)", "Comet (JPL Horizons)", "Asteroid (JPL Horizons)", "Cosmic Cataclysm", "🪐 Exoplanet Transits", "Manual RA/Dec"],
     horizontal=True
 )
 
@@ -4344,6 +4344,159 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
     return name, sky_coord, resolved, obj_name
 
 
+def render_exoplanet_section(location, start_time, duration, min_alt, max_alt, az_dirs,
+                              min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+                              show_obs_window, obs_start_naive, obs_end_naive, local_tz,
+                              lat, lon):
+    """Exoplanet Transits section — Unistellar missions, next 7 days."""
+    tz_name = str(local_tz)
+
+    st.header("🪐 Exoplanet Transits")
+    st.caption(
+        "Transit windows for Unistellar active missions over the next 7 days. "
+        "Score = completeness + altitude during transit + moon separation + duration. "
+        "Observable = Score ≥ 30 and min altitude ≥ 20°."
+    )
+
+    with st.spinner("Loading transit data..."):
+        df = get_exoplanet_summary(lat, lon, tz_name, start_time)
+
+    if df.empty:
+        st.warning(
+            "No transit data available. Possible reasons: "
+            "(1) No Unistellar exoplanet missions are currently active, "
+            "(2) no transits occur in the next 7 days from your location, or "
+            "(3) the Swarthmore or Unistellar fetch failed — check your internet connection."
+        )
+        return
+
+    # Dec filter (mark as unobservable, same pattern as other sections)
+    if "is_observable" not in df.columns:
+        df["is_observable"] = True
+        df["filter_reason"] = ""
+
+    if "_dec_deg" in df.columns and (min_dec > -90 or max_dec < 90):
+        _dec_out = ~((df["_dec_deg"] >= min_dec) & (df["_dec_deg"] <= max_dec))
+        df.loc[_dec_out, "is_observable"] = False
+        df.loc[_dec_out, "filter_reason"] = df.loc[_dec_out, "_dec_deg"].apply(
+            lambda d: f"Dec {d:+.1f}° outside filter ({min_dec}° to {max_dec}°)"
+        )
+
+    # Observability: score >= 30 AND min alt >= 20
+    _min_alt_col = pd.to_numeric(df.get("Min Alt During Transit", pd.Series(dtype=float)), errors="coerce")
+    _scores      = pd.to_numeric(df.get("Score", pd.Series(dtype=float)), errors="coerce")
+    _score_mask  = ~((_scores >= 30) & (_min_alt_col >= 20))
+    df.loc[_score_mask & df["is_observable"], "is_observable"] = False
+    df.loc[_score_mask & (df["filter_reason"] == ""), "filter_reason"] = df.loc[
+        _score_mask & (df["filter_reason"] == "")
+    ].apply(
+        lambda r: (
+            f"Score {int(r['Score'])} < 30 ({r['Quality']})"
+            if r.get("Score", 0) < 30
+            else f"Min altitude {r.get('Min Alt During Transit', '?')}° < 20°"
+        ),
+        axis=1,
+    )
+
+    df_obs  = df[df["is_observable"]].copy()
+    df_filt = df[~df["is_observable"]].copy()
+
+    _DISPLAY_COLS = [
+        "Planet", "Host Star", "Date", "Ingress", "Mid-Transit", "Egress",
+        "Duration", "Completeness", "Depth (mmag)", "Min Alt During Transit",
+        "Moon Sep During Transit", "Moon Status", "Score", "Quality",
+    ]
+
+    tab_obs, tab_filt = st.tabs([
+        f"🎯 Observable ({len(df_obs)})",
+        f"👻 Unobservable ({len(df_filt)})",
+    ])
+
+    with tab_obs:
+        if df_obs.empty:
+            st.info("No observable transits in the next 7 days from your location.")
+        else:
+            # Best opportunity callout
+            _best_idx = df_obs["Score"].idxmax()
+            _best = df_obs.loc[_best_idx]
+            st.success(
+                f"⭐ Best opportunity: **{_best['Planet']}** on {_best['Date']} "
+                f"({_best['Completeness']} transit, {_best['Duration']}) — "
+                f"Score **{_best['Score']}** ({_best['Quality']})"
+            )
+
+            plot_transit_gantt(df_obs, local_tz)
+
+            # Table sorted by score descending
+            _df_sorted = df_obs.sort_values("Score", ascending=False)
+            _show_cols = [c for c in _DISPLAY_COLS if c in _df_sorted.columns]
+            st.dataframe(
+                _df_sorted[_show_cols],
+                hide_index=True,
+                use_container_width=True,
+                column_config=_MOON_SEP_COL_CONFIG,
+            )
+            st.caption(
+                "🌙 **Moon Sep During Transit**: angular separation from the Moon at mid-transit "
+                "(from Swarthmore Transit Finder)."
+            )
+
+            with st.expander("📅 Night Plan Builder", expanded=False):
+                _render_night_plan_builder(
+                    df_obs=df_obs,
+                    start_time=start_time,
+                    night_end=start_time + timedelta(minutes=duration),
+                    local_tz=local_tz,
+                    target_col="Planet",
+                    ra_col="RA",
+                    dec_col="Dec",
+                    section_key="exoplanet",
+                    csv_filename="exoplanet_transits.csv",
+                )
+
+    with tab_filt:
+        if df_filt.empty:
+            st.info("All transit events are observable.")
+        else:
+            _filt_cols = [c for c in [
+                "Planet", "Date", "Completeness", "Score", "Quality",
+                "Min Alt During Transit", "filter_reason",
+            ] if c in df_filt.columns]
+            st.dataframe(df_filt[_filt_cols], hide_index=True, use_container_width=True)
+
+    # Trajectory picker
+    if not df_obs.empty:
+        st.divider()
+        st.subheader("🔭 Transit Detail")
+        _event_labels = df_obs.apply(
+            lambda r: f"{r['Planet']} — {r['Date']} {r['Ingress']}–{r['Egress']}", axis=1
+        ).tolist()
+        _sel_label = st.selectbox(
+            "Select a transit event to view altitude chart:",
+            _event_labels,
+            key="exo_traj_pick",
+        )
+        if _sel_label:
+            _sel_idx = _event_labels.index(_sel_label)
+            _sel_row = df_obs.iloc[_sel_idx]
+            try:
+                sc = SkyCoord(
+                    str(_sel_row["RA"]), str(_sel_row["Dec"]),
+                    unit=(u.hourangle, u.deg), frame="icrs",
+                )
+                traj = compute_trajectory(sc, location, start_time, duration_minutes=duration)
+                traj_df = pd.DataFrame(traj)
+                if not traj_df.empty and "Local Time" in traj_df.columns:
+                    st.line_chart(traj_df.set_index("Local Time")["Altitude (°)"])
+                    st.caption(
+                        f"Transit window: **{_sel_row['Ingress']}** (ingress) → "
+                        f"**{_sel_row['Mid-Transit']}** (mid) → "
+                        f"**{_sel_row['Egress']}** (egress)"
+                    )
+            except Exception as _e:
+                st.warning(f"Could not compute trajectory: {_e}")
+
+
 if target_mode == "Star/Galaxy/Nebula (SIMBAD)":
     name, sky_coord, resolved, _ = render_dso_section(
         location, start_time, duration, min_alt, max_alt, az_dirs,
@@ -4377,6 +4530,13 @@ elif target_mode == "Cosmic Cataclysm":
         location, start_time, duration, min_alt, max_alt, az_dirs,
         min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
         show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon
+    )
+
+elif target_mode == "🪐 Exoplanet Transits":
+    render_exoplanet_section(
+        location, start_time, duration, min_alt, max_alt, az_dirs,
+        min_moon_sep, min_dec, max_dec, moon_loc, moon_illum,
+        show_obs_window, obs_start_naive, obs_end_naive, local_tz, lat, lon,
     )
 
 elif target_mode == "Manual RA/Dec":
