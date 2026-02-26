@@ -1372,6 +1372,27 @@ _GPS_ERROR_MESSAGES = {
         "Try again, or enter your city/address in the search box above instead."),
 }
 
+# Restore location from sessionStorage (once per browser session)
+if _ss_js and "_loc_loaded" not in st.session_state:
+    _js_loc = _ss_js(
+        js_expressions='JSON.stringify({lat: sessionStorage.getItem("astro_lat"), lon: sessionStorage.getItem("astro_lon")})',
+        key="ss_read_loc",
+        want_output=True,
+    )
+    if _js_loc is not None:
+        st.session_state._loc_loaded = True
+        try:
+            _d = json.loads(_js_loc)
+            _lat = float(_d["lat"]) if _d.get("lat") else 0.0
+            _lon = float(_d["lon"]) if _d.get("lon") else 0.0
+            _cur_lat = float(st.session_state.get("lat") or 0)
+            _cur_lon = float(st.session_state.get("lon") or 0)
+            if (_lat != 0.0 or _lon != 0.0) and (_cur_lat == 0.0 and _cur_lon == 0.0):
+                st.session_state.lat = _lat
+                st.session_state.lon = _lon
+        except Exception:
+            pass
+
 if get_geolocation:
     if st.sidebar.checkbox("📍 Use Browser GPS"):
         loc = get_geolocation()
