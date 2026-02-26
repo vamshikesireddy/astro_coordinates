@@ -1436,7 +1436,23 @@ st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
 alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (20, 90), help="Target must be within this altitude range (Min to Max).")
 min_alt, max_alt = alt_range
-az_range = st.sidebar.slider("Azimuth Window (°)", 0, 360, (0, 360), help="Target must be within this compass direction (0=N, 90=E, 180=S, 270=W).")
+st.sidebar.markdown("**🧭 Azimuth Direction**")
+_az_cols = st.sidebar.columns(4)
+_az_btn_cols = st.sidebar.columns(2)
+with _az_btn_cols[0]:
+    if st.button("Select All", key="az_select_all", use_container_width=True):
+        for _d in _AZ_LABELS:
+            st.session_state[f"az_{_d}"] = True
+with _az_btn_cols[1]:
+    if st.button("Clear All", key="az_clear_all", use_container_width=True):
+        for _d in _AZ_LABELS:
+            st.session_state[f"az_{_d}"] = False
+az_dirs = set()
+for _i, _d in enumerate(_AZ_LABELS):
+    with _az_cols[_i % 4]:
+        if st.checkbox(_d, value=True, key=f"az_{_d}"):
+            az_dirs.add(_d)
+        st.caption(_AZ_CAPTIONS[_d])
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
