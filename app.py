@@ -1182,8 +1182,20 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
     except Exception:
         moon_loc_inner = None
         moon_illum_inner = 0
+    # --- Thread-safe: load @st.cache_data maps BEFORE spawning workers ---
+    _overrides = _load_jpl_overrides()   # @st.cache_data — safe here (main thread)
+    _jpl_cache = _load_jpl_cache()       # plain file read, always safe
+
+    def _comet_id_local(name):
+        """Resolve comet display name → JPL ID using pre-loaded maps (no Streamlit cache calls)."""
+        if name in _overrides.get("comets", {}):
+            return _overrides["comets"][name]
+        if name in _jpl_cache.get("comets", {}):
+            return _jpl_cache["comets"][name]
+        return name.split('(')[0].strip()
+
     def _fetch(comet_name):
-        jpl_id = _get_comet_jpl_id(comet_name)
+        jpl_id = _comet_id_local(comet_name)
         try:
             _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             details = calculate_planning_info(sky_coord, location, start_time)
@@ -1195,13 +1207,17 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                 "_dec_deg": sky_coord.dec.degree,
                 "Moon Sep (°)": round(moon_sep, 1),
                 "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "_jpl_id_used": jpl_id,
             }
             row.update(details)
             return row
         except Exception as first_exc:
-            # SBDB auto-resolve fallback
             from backend.sbdb import sbdb_lookup
+            # Try full display name first, then stripped jpl_id (catches cases where
+            # display name has parenthetical that SBDB can't handle but stripped form can)
             sbdb_id = sbdb_lookup(comet_name)
+            if sbdb_id is None and jpl_id != comet_name:
+                sbdb_id = sbdb_lookup(jpl_id)
             if sbdb_id and sbdb_id != jpl_id:
                 try:
                     _, sky_coord = resolve_horizons(sbdb_id, obs_time_str=obs_time_str)
@@ -1215,6 +1231,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                         "_dec_deg": sky_coord.dec.degree,
                         "Moon Sep (°)": round(moon_sep, 1),
                         "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                        "_jpl_id_used": sbdb_id,
                     }
                     row.update(details)
                     return row
@@ -1230,11 +1247,12 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                 "Moon Sep (°)": "—", "Moon Status": "—",
                 "_resolve_error": True,
                 "_jpl_id_tried": jpl_id,
+                "_jpl_id_used": jpl_id,
                 "_jpl_error": str(first_exc)[:200],
             }
 
-    deduped_comets = _dedup_by_jpl_id(list(comet_tuple), _get_comet_jpl_id)
-    with ThreadPoolExecutor(max_workers=min(len(deduped_comets), 8)) as executor:
+    deduped_comets = _dedup_by_jpl_id(list(comet_tuple), _comet_id_local)
+    with ThreadPoolExecutor(max_workers=max(1, min(len(deduped_comets), 8))) as executor:
         results = list(executor.map(_fetch, deduped_comets))
     return pd.DataFrame(results)   # every entry is a row — no filter(None)
 
