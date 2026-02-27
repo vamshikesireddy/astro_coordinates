@@ -4,6 +4,101 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — Pre-computed ephemeris cache: zero live JPL calls at render time
+
+**Branch:** `feature/ephemeris-cache` — 9 commits + 2 post-merge hotfixes, merged to main
+**Tests:** 63 pass (11 new in `tests/test_ephemeris_cache.py`, 3 new in `tests/test_populate_jpl_cache.py`, 3 new in `tests/test_config.py`)
+
+### Problem solved
+
+`get_comet_summary()` and `get_asteroid_summary()` called JPL Horizons live at render time for every object. With 25 comets + 16 asteroids this caused:
+- Up to 30s load time on first uncached render
+- ~30% intermittent failure rate from JPL rate limiting (3 parallel workers each)
+- Three comets (`24P/Schaumasse`, `235P/LINEAR`, `88P/Howell`) always failing due to stale bad IDs in `jpl_id_cache.json`
+
+### Architecture: pre-computed ephemeris (GitHub Actions daily)
+
+GitHub Actions runs `scripts/update_ephemeris_cache.py` daily at 07:00 UTC. The script:
+- Reads `comets.yaml` and `asteroids.yaml` for the full watchlist
+- Makes **41 total Horizons requests** (one per object, each covering today→today+30 with `step='1d'`)
+- Runs sequentially with 0.5s delay — no burst, no rate limiting; completes in ~2 min
+- Validates object names against SBDB `fullname` daily; creates GitHub Issue on genuine renames
+- Outputs `ephemeris_cache.json` (committed to repo, ~60KB)
+
+App fast path in `_fetch()` (both comet and asteroid):
+```python
+cached_pos = lookup_cached_position(_ephem, "comets", name, target_date)
+if cached_pos is not None:
+    ra_deg, dec_deg = cached_pos
+    sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+    # → local astropy rise/set, no JPL call
+# fallback: existing live JPL path (dates >30 days out, or object missing from cache)
+```
+
+Result: **0 JPL calls at render time for the 99% case** (dates ≤30 days). Load time drops from ~30s to ~0.1s.
+
+### Bugs found and fixed (during implementation + code review)
+
+**Bug: stale `[20M, 30M)` SBDB internal IDs in `jpl_id_cache.json`**
+- Root cause: `populate_jpl_cache.py` wrote SBDB's internal SPK-IDs (`20000000+N` for numbered bodies, e.g. `"433 Eros": "20000433"`) before the `_save_jpl_cache_entry` guard existed.
+- JPL Horizons does not accept these IDs → 3 comets and ALL 16 asteroids failed on every cache hit.
+- Fix 1: Removed all `[20M, 30M)` entries from `jpl_id_cache.json`.
+- Fix 2: Same guard added to `populate_jpl_cache.py` — script now prints `SKIP (SBDB internal ID)` and never writes bad entries.
+- Rule: SBDB and Horizons use different ID namespaces. Always validate that a cached ID is accepted by Horizons, not just returned by SBDB.
+
+**Bug (code review): `_validate_name()` caused false-positive "name changes" for every numbered body**
+- SBDB `fullname` field always appends the provisional designation in parens (e.g. `"433 Eros (A898 PA)"`).
+- Naive string comparison → flagged every numbered asteroid as a rename on every daily run.
+- Fix: strip the parenthetical suffix from BOTH the canonical SBDB name and the stored YAML name before comparing. Only genuine base-name differences (not format differences) trigger the GitHub Issue.
+- Rule: always strip `(...)` suffixes when comparing SBDB `fullname` to stored display names.
+
+**Bug (code review): `lookup_cached_position` defined in `scripts/` — imported by `app.py`**
+- `app.py` importing from `scripts/` violates the architectural boundary (scripts = CLI tools, not library code).
+- Fix: moved to `backend/config.py` as a public function. Both `app.py` call sites updated; test imports updated.
+- Rule: `app.py` and `backend/` must never import from `scripts/`. Scripts import from `backend/`, not the other way.
+
+**Bug (code review): workflow missing `git pull --rebase` before push**
+- `update-ephemeris-cache.yml` and `check-unistellar-priorities.yml` both run Mon/Thu around 07:00 UTC.
+- If both commit concurrently, the second push would be rejected without a rebase.
+- Fix: added `git pull --rebase origin main` between `git commit` and `git push` in the workflow.
+
+**Bug: Windows `UnicodeEncodeError` in `update_ephemeris_cache.py`**
+- Script used Unicode arrows (`→`) and emoji (`⚠️`) in `print()` calls.
+- Windows CP1252 console cannot encode these → `UnicodeEncodeError` on local runs.
+- Fix: replaced all non-ASCII characters with ASCII equivalents (`->`, `WARNING`, `FAIL`).
+
+### YAML renames detected on first run (name validation working)
+
+The first run of `update_ephemeris_cache.py` detected 3 genuine renames via SBDB `fullname` comparison:
+
+| Stored name (old) | Canonical SBDB name | Section |
+|---|---|---|
+| `240P-B` | `240P/NEAT-B` | comets |
+| `2001 FD58` | `162882 (2001 FD58)` | asteroids |
+| `2001 SN263` | `153591 (2001 SN263)` | asteroids |
+
+All three were updated in `comets.yaml`, `asteroids.yaml`, and `jpl_id_cache.json`.
+
+### Post-merge hotfix: `240P/NEAT-B` failed Horizons fetch after rename
+
+After renaming `240P-B` → `240P/NEAT-B` in `comets.yaml`, the corresponding override in `jpl_id_overrides.yaml` still used the old key `"240P-B"`. The override lookup returned `None` → all 3 Horizons fallback attempts failed → `240P/NEAT-B` appeared in `failures` list.
+
+- Fix: renamed the key from `"240P-B"` to `"240P/NEAT-B"` in `jpl_id_overrides.yaml` (value `"90001203"` unchanged).
+- Confirmed: next workflow run shows `Failures: 0`, `240P/NEAT-B → OK (31 days)`.
+- Rule: when renaming an object in `comets.yaml` / `asteroids.yaml`, always check `jpl_id_overrides.yaml` for a matching key and update it to match.
+
+### Files added
+- `scripts/update_ephemeris_cache.py` — daily ephemeris fetch + name validation
+- `.github/workflows/update-ephemeris-cache.yml` — GH Actions workflow (daily 07:00 UTC)
+- `ephemeris_cache.json` — pre-computed positions (tracked in git)
+- `tests/test_ephemeris_cache.py` — 11 unit tests
+- `tests/test_populate_jpl_cache.py` — 3 unit tests for bad-ID guard
+
+### Files modified
+`backend/config.py` (added `read_ephemeris_cache`, `lookup_cached_position`), `app.py` (added `_load_ephemeris_cache`, fast paths in both summary functions), `jpl_id_cache.json` (removed bad entries, renamed `240P-B` key), `comets.yaml` (renamed `240P-B` → `240P/NEAT-B`), `asteroids.yaml` (renamed 2 objects), `jpl_id_overrides.yaml` (renamed `240P-B` key), `scripts/populate_jpl_cache.py` (bad-ID guard added), `CLAUDE.md`, `CHANGELOG.md`.
+
+---
+
 ## 2026-02-27 — JPL name resolution: all bugs fixed, 46 tests pass (final)
 
 **Branch:** `feature/jpl-name-resolution` — 25 commits, merged to main
