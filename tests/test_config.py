@@ -196,3 +196,37 @@ def test_write_and_read_jpl_overrides_roundtrip():
         assert result["asteroids"]["433 Eros"] == "433"
     finally:
         os.unlink(path)
+
+
+# --- read_ephemeris_cache tests ---
+from backend.config import read_ephemeris_cache
+
+
+def test_read_ephemeris_cache_missing():
+    """Returns empty dict when file does not exist."""
+    result = read_ephemeris_cache("/nonexistent/ephemeris_cache.json")
+    assert result == {}
+
+def test_read_ephemeris_cache_loads(tmp_path):
+    """Loads a valid ephemeris cache JSON."""
+    data = {
+        "generated_utc": "2026-03-01T07:00:00",
+        "horizon_days": 30,
+        "comets": {
+            "C/2024 G3 (ATLAS)": {
+                "positions": [{"date": "2026-03-01", "ra": 123.4, "dec": -12.5}]
+            }
+        },
+        "asteroids": {}
+    }
+    f = tmp_path / "ephemeris_cache.json"
+    f.write_text(json.dumps(data))
+    result = read_ephemeris_cache(str(f))
+    assert result["comets"]["C/2024 G3 (ATLAS)"]["positions"][0]["ra"] == 123.4
+
+def test_read_ephemeris_cache_corrupt(tmp_path):
+    """Returns empty dict for corrupt JSON."""
+    f = tmp_path / "ephemeris_cache.json"
+    f.write_text("not valid json {{")
+    result = read_ephemeris_cache(str(f))
+    assert result == {}

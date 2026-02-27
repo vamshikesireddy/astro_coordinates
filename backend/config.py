@@ -99,3 +99,14 @@ def write_jpl_cache(path, data):
             json.dump(data, f, indent=2)
     except Exception:
         pass
+
+
+def read_ephemeris_cache(path):
+    """Load ephemeris_cache.json → dict, or {} if missing/corrupt."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
