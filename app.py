@@ -2712,6 +2712,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                 with st.spinner(f"Querying JPL Horizons for {obj_name}..."):
                     utc_start = start_time.astimezone(pytz.utc)
                     name, sky_coord = resolve_horizons(obj_name, obs_time_str=utc_start.strftime('%Y-%m-%d %H:%M:%S'))
+                if selected_target != "Custom Comet...":
+                    name = selected_target  # show display name ("24P/Schaumasse"), not bare JPL ID
                 st.success(f"✅ Resolved: **{name}**")
                 resolved = True
             except Exception as e:
@@ -3407,6 +3409,8 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
             with st.spinner(f"Querying JPL Horizons for {obj_name}..."):
                 utc_start = start_time.astimezone(pytz.utc)
                 name, sky_coord = resolve_horizons(obj_name, obs_time_str=utc_start.strftime('%Y-%m-%d %H:%M:%S'))
+            if selected_target != "Custom Asteroid...":
+                name = selected_target  # show display name ("2 Pallas"), not bare JPL ID ("2")
             st.success(f"✅ Resolved: **{name}**")
             resolved = True
         except Exception as e:
