@@ -156,6 +156,7 @@ def test_read_jpl_cache_missing_file():
     result = read_jpl_cache("/nonexistent.json")
     assert result["comets"] == {}
     assert result["asteroids"] == {}
+    assert result["notified"] == []
 
 
 def test_read_jpl_cache_corrupted_file():
@@ -166,6 +167,7 @@ def test_read_jpl_cache_corrupted_file():
         result = read_jpl_cache(path)
         assert result["comets"] == {}
         assert result["asteroids"] == {}
+        assert result["notified"] == []
     finally:
         os.unlink(path)
 
@@ -179,5 +181,18 @@ def test_write_and_read_jpl_cache_roundtrip():
         result = read_jpl_cache(path)
         assert result["comets"]["C/2025 Q3 (ATLAS)"] == "90004812"
         assert result["notified"] == []
+    finally:
+        os.unlink(path)
+
+
+def test_write_and_read_jpl_overrides_roundtrip():
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        path = f.name
+    try:
+        data = {"comets": {"C/2025 N1 (ATLAS)": "3I"}, "asteroids": {"433 Eros": "433"}}
+        write_jpl_overrides(path, data)
+        result = read_jpl_overrides(path)
+        assert result["comets"]["C/2025 N1 (ATLAS)"] == "3I"
+        assert result["asteroids"]["433 Eros"] == "433"
     finally:
         os.unlink(path)
