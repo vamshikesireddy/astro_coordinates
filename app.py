@@ -1742,13 +1742,13 @@ st.markdown("Plan your astrophotography sessions with visibility predictions.")
 
 with st.expander("ℹ️ How to Use"):
     st.markdown("""
-    ### 1. Set Location, Time & Filters (Sidebar)
+    ### Setup (Sidebar)
     *   **Location:** Search for a city, use Browser GPS, or enter coordinates manually.
     *   **Time:** Set your observation start date and time.
     *   **Duration:** Choose how long you plan to image.
-    *   **Observational Filters:** Set Altitude range (Min/Max), Azimuth direction, and Moon Separation to filter targets. The **Azimuth compass grid** (N/NE/E/SE/S/SW/W/NW) defaults to no filter (all 360°). Check one or more directions to restrict results to only objects visible in those areas — useful if your sky is partially blocked (e.g. check SE only for a south-east facing balcony).
+    *   **Filters:** Set Altitude range (Min/Max), Azimuth compass grid (N/NE/E/SE/S/SW/W/NW — check one or more directions to restrict to your visible sky, e.g. SE only for a south-east facing balcony; nothing checked = all 360°), and Moon Separation.
 
-    ### 2. Choose a Target
+    ### 1. Choose Target
     Select one of the six modes:
     *   **🌌 Star/Galaxy/Nebula:** Browse the full Messier catalog, Bright Stars, or Astrophotography Favorites with batch visibility (Observable/Unobservable tabs + Gantt chart). Filter by object type. Select any target for a full trajectory, or use 'Custom Object...' to search SIMBAD for any object by name.
     *   **🪐 Planet:** Select a major planet.
@@ -1757,17 +1757,21 @@ with st.expander("ℹ️ How to Use"):
     *   **💥 Cosmic Cataclysm:** Live alerts for transient events (novae, supernovae, variable stars). Report invalid/cancelled events or suggest priorities.
     *   **✍️ Manual:** Enter RA/Dec directly.
 
-    ### 3. Calculate & Analyze
-    *   Click **🚀 Calculate Visibility**.
-    *   View the **Altitude Chart** to see if the object is high enough.
-    *   **Download CSV** for detailed minute-by-minute data.
-
-    ### 4. Night Plan Builder
-    Every section's **Observable** tab has a **📅 Night Plan Builder** expander. Use it to build a sorted target list for the night:
-    *   **Observation window** — Drag the **Session window** range slider to set the start and end of your session. The slider spans the full observation night (18:00 tonight → 12:00 next morning). Both handles show the actual date and time (e.g. `Feb 27 22:00`) so you always know which night you're planning for. Step is 30 minutes.
-    *   **Sort by Set Time or Transit Time** — controls the order of the plan only; both sliders together determine which targets are included.
+    ### 2. 📅 Night Plan Builder
+    Inside the **Observable** tab, the **Night Plan Builder** is already open. Use it to plan your full night across all visible targets:
+    *   **Session window** — Drag the range slider to set your imaging start and end. The slider spans the full night (18:00 tonight → 12:00 next morning); both handles show date and time (e.g. `Feb 27 22:00`). Step is 30 minutes.
+    *   **Sort by Set Time or Transit Time** — controls plan order only.
     *   **Filter** by Moon Status, priority level, magnitude, event type, and discovery recency.
-    *   **Export** the plan as CSV or PDF (PDF is priority-colour-coded; Cosmic Cataclysm PDFs also include `unistellar://` deeplinks).
+    *   **Export** as CSV or PDF (PDF is priority-colour-coded; Cosmic Cataclysm PDFs include `unistellar://` deeplinks).
+
+    ### 3. Select Target for Trajectory
+    Below the Observable/Unobservable tabs, pick any individual target from the dropdown to drill into its full altitude/azimuth trajectory for your session window.
+
+    ### 4. Trajectory Results
+    *   Click **🚀 Calculate Visibility**.
+    *   View the **Altitude Chart** to see how the object moves across your window.
+    *   Check **Moon separation** at each time step in the detailed data table.
+    *   **Download CSV** for minute-by-minute data.
     """)
 
 def _init_session_state(now):
