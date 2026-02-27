@@ -888,14 +888,17 @@ def _render_night_plan_builder(
     else:
         _slider_default_end = night_plan_end
 
-    # Sync slider to sidebar: when the sidebar time changes, reset the stored
-    # slider value so the handles track the new start/duration.
+    # Sync slider to sidebar: when the sidebar time OR duration changes, reset
+    # the stored slider value so the handles track the new sidebar values.
     # Always manage state via session_state — never pass value= to st.slider
     # alongside a manual st.session_state assignment (causes Streamlit warning).
     _ss_key = f"{section_key}_win_range"
     _last_key = f"{section_key}_last_start"
-    if st.session_state.get(_last_key) != _st_rounded:
+    _last_dur_key = f"{section_key}_last_dur"
+    if (st.session_state.get(_last_key) != _st_rounded
+            or st.session_state.get(_last_dur_key) != duration_minutes):
         st.session_state[_last_key] = _st_rounded
+        st.session_state[_last_dur_key] = duration_minutes
         st.session_state[_ss_key] = (_slider_default_start, _slider_default_end)
 
     _win_range = st.slider(
