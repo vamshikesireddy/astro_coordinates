@@ -17,6 +17,8 @@ asteroid_pending_requests.txt
 # Temporary files produced by CI scripts (never committed)
 _new_comets.json
 _priority_changes.json
+_exoplanet_priority_changes.json
+exoplanet_pending_requests.txt
 
 # OS generated files
 .DS_Store
