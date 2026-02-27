@@ -47,5 +47,5 @@ docs/plans/
 .env.*
 *.env
 
-# JPL ID cache (auto-generated at runtime, not committed)
-jpl_id_cache.json
+# JPL ID cache — committed; updated by scripts/populate_jpl_cache.py
+# jpl_id_cache.json
