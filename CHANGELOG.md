@@ -4,6 +4,55 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-02-27 — JPL name resolution: all bugs fixed, 46 tests pass
+
+**Branch:** `feature/jpl-name-resolution`
+
+### What was built
+Three-layer JPL ID lookup system: `jpl_id_overrides.yaml` → `jpl_id_cache.json` → name fallback (strip parenthetical / extract number / provisional passthrough). SBDB fallback when Horizons rejects the initial ID. Admin panel shows JPL failures with per-object override input and save button.
+
+### Bugs found and fixed
+
+**Bug: SBDB returns `2000xxxx` SPK-IDs that Horizons rejects**
+- SBDB returns `20000000 + catalog_number` for numbered bodies (e.g. `20000433` for Eros, `20015091` for 88P/Howell).
+- JPL Horizons does not accept these IDs. Every asteroid and several periodic comets failed.
+- `diagnose_jpl.py` (new script) identified the pattern by testing all 41 objects against live Horizons.
+- Fix 1: Purged all `>= 20_000_000` entries from `jpl_id_cache.json`.
+- Fix 2: Guard added to `_save_jpl_cache_entry()` — rejects IDs in `[20M, 30M)` before writing, so bad IDs can never re-enter the cache from SBDB. Fragment IDs (`9000xxxx`) and comet SPK-IDs (`100xxxx`) are correctly allowed through.
+- Test added: `test_save_jpl_cache_entry_rejects_sbdb_internal_ids` + `test_save_jpl_cache_entry_accepts_valid_ids`.
+
+**Bug: NaN-truthy check flags ALL rows as JPL failures**
+- `@st.cache_data` summary functions (`get_comet_summary` / `get_asteroid_summary`) mix success rows (no `_resolve_error` key) and stub rows (`_resolve_error: True`) into a single DataFrame.
+- Pandas fills missing column values with `NaN` (float). `bool(float('nan'))` is `True` in Python.
+- `if row.get("_resolve_error"):` → `if NaN:` → `True` → **every row** flagged as a JPL failure, even successful ones.
+- Symptom: all comets and asteroids appeared Unobservable with "JPL lookup failed (tried: nan)".
+- Fix: `if row.get("_resolve_error") is True:` in both the comet (line ~2572) and asteroid (line ~3260) observability loops.
+- Test added: `test_nan_resolve_error_not_truthy` — documents that NaN is truthy and confirms `is True` is the correct guard. The test intentionally asserts BOTH the buggy and fixed behaviour so future readers understand why `is True` is required.
+
+**Bug: Stale `@st.cache_data` serving old failure results after fixes**
+- `get_comet_summary()` and `get_asteroid_summary()` are `@st.cache_data(ttl=3600)`. Results from the first broken run were cached for 1 hour.
+- `_load_jpl_overrides()` is also `@st.cache_data` — new override entries (e.g. `"3 Juno": "3;"`) were invisible to the batch until server restart.
+- "Always rerun" in Streamlit does NOT clear `@st.cache_data`. Only killing and restarting the process does.
+- Fix: "🔄 Refresh JPL Data" button added to both Comet Admin and Asteroid Admin panels. Calls `_load_jpl_overrides.clear()`, `get_comet_summary.clear()`, `get_asteroid_summary.clear()`, then reruns.
+- **Deferred (next iteration):** Don't cache failure stub rows at all — strip them from the `@st.cache_data` result and re-query them fresh on each render. Eliminates the entire class of stale-failure bugs.
+
+**Bug: `3 Juno` bare number `3` is ambiguous in Horizons**
+- Horizons rejects bare `3` (conflicts with other designations).
+- Fix: override `"3 Juno": "3;"` in `jpl_id_overrides.yaml` — trailing semicolon forces small-body search.
+
+**Bug: Trajectory picker shows bare JPL ID instead of display name**
+- `resolve_horizons("2")` returns `("2", sc)`. The "Resolved:" banner showed `2` instead of `2 Pallas`.
+- Fix: after a successful resolve, if the user selected from the list (not a custom entry), `name = selected_target` overrides the raw JPL query string. Applied to both comet My List and asteroid trajectory pickers.
+
+### New scripts and tests
+- `scripts/diagnose_jpl.py` — standalone CLI: tests all comets and asteroids against live JPL Horizons API, prints pass/fail per object with the ID source (override / cache / stripped / number-extracted). Result after all fixes: 41/41 resolved OK.
+- 3 new tests in `tests/test_jpl_resolution.py` (total: 46 tests).
+
+### Files changed
+`app.py`, `jpl_id_cache.json`, `jpl_id_overrides.yaml`, `scripts/diagnose_jpl.py`, `tests/test_jpl_resolution.py`, `CHANGELOG.md`.
+
+---
+
 ## 2026-02-25 — Night Plan Builder: sort by Set Time or Transit Time
 
 **Change:** The Night Plan Builder's sort order is no longer driven by priority. Priority colour-coding (URGENT red / HIGH orange / LOW green) remains for visual scanning, but the plan is now sorted purely by time.

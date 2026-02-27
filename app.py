@@ -1093,7 +1093,24 @@ def _load_jpl_cache():
 
 
 def _save_jpl_cache_entry(section, name, jpl_id):
-    """Persist a newly SBDB-resolved JPL ID to jpl_id_cache.json."""
+    """Persist a newly SBDB-resolved JPL ID to jpl_id_cache.json.
+
+    Guards against SBDB internal-format SPK-IDs in [20M, 30M) which JPL
+    Horizons rejects.  SBDB returns 20000000 + catalog_number for numbered
+    bodies (e.g. 20000433 for Eros, 20015091 for 88P/Howell).  Caching
+    these causes every subsequent batch query to fail.
+
+    Valid ID ranges we keep:
+      - Numbered bodies:    < 10_000_000  (1, 433, 99942 …)
+      - Comet SPK-IDs:      ~1_003_000 – 1_004_999  (1003861, 1004111 …)
+      - Fragment IDs:       ~90_000_000+  (90001202, 90001203 …)
+    """
+    try:
+        _id_int = int(jpl_id)
+        if 20_000_000 <= _id_int < 30_000_000:
+            return  # SBDB internal ID — Horizons rejects these; skip caching
+    except (ValueError, TypeError):
+        pass  # non-numeric IDs (designations like "C/2025 F2", "3I") are fine
     from backend.config import read_jpl_cache, write_jpl_cache
     cache = read_jpl_cache(JPL_CACHE_FILE)
     cache.setdefault(section, {})[name] = jpl_id
