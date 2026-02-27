@@ -1517,7 +1517,7 @@ def get_exoplanet_summary(lat, lon, tz_name, start_time):
 
     # 2. Fetch transit windows from Swarthmore
     df = fetch_transit_windows(lat=lat, lon=lon, tz_name=tz_name,
-                               planet_names=planet_names, days=7)
+                               planet_names=planet_names, days=10)
     if df.empty:
         return pd.DataFrame()
 
@@ -1539,6 +1539,18 @@ def get_exoplanet_summary(lat, lon, tz_name, start_time):
             return dt.strftime(fmt) if pd.notna(dt) else "–"
         except Exception:
             return "–"
+
+    def _compute_altaz(sc, dt):
+        """Return (alt_int, dir_str) for sc at datetime dt, or (None, None) on error."""
+        try:
+            if dt is None:
+                return None, None
+            if pd.isna(dt):
+                return None, None
+            aa = sc.transform_to(AltAz(obstime=Time(dt), location=obs_location))
+            return int(round(float(aa.alt.degree))), azimuth_to_compass(float(aa.az.degree))
+        except Exception:
+            return None, None
 
     rows = []
     for _, row in df.iterrows():
@@ -1598,12 +1610,31 @@ def get_exoplanet_summary(lat, lon, tz_name, start_time):
             ra_str  = str(row.get("RA",  "–"))
             dec_str = str(row.get("Dec", "–"))
 
-            # _dec_deg for the Dec filter
+            # _dec_deg for the Dec filter + alt/az arc
+            sc_row = None
+            dec_deg = float("nan")
             try:
-                sc = SkyCoord(ra_str, dec_str, unit=(u.hourangle, u.deg), frame='icrs')
-                dec_deg = sc.dec.degree
+                sc_row = SkyCoord(ra_str, dec_str, unit=(u.hourangle, u.deg), frame='icrs')
+                dec_deg = sc_row.dec.degree
             except Exception:
-                dec_deg = float("nan")
+                pass
+
+            # Alt/Az at ingress, mid, egress
+            if sc_row is not None:
+                ing_alt, ing_dir = _compute_altaz(sc_row, ingress_dt)
+                mid_alt, mid_dir = _compute_altaz(sc_row, mid_dt)
+                egr_alt, egr_dir = _compute_altaz(sc_row, egress_dt)
+            else:
+                ing_alt = ing_dir = mid_alt = mid_dir = egr_alt = egr_dir = None
+
+            def _fmt_aa(alt, dir_str):
+                return f"{alt}°{dir_str}" if alt is not None else "–"
+
+            arc_str = (
+                f"{_fmt_aa(ing_alt, ing_dir)} → "
+                f"{_fmt_aa(mid_alt, mid_dir)} → "
+                f"{_fmt_aa(egr_alt, egr_dir)}"
+            )
 
             rows.append({
                 "Planet":                  planet_name,
@@ -1612,6 +1643,13 @@ def get_exoplanet_summary(lat, lon, tz_name, start_time):
                 "Ingress":                 ingress_str,
                 "Mid-Transit":             mid_str,
                 "Egress":                  egress_str,
+                "Ingress Alt":             ing_alt,
+                "Ingress Dir":             ing_dir,
+                "Mid Alt":                 mid_alt,
+                "Mid Dir":                 mid_dir,
+                "Egress Alt":              egr_alt,
+                "Egress Dir":              egr_dir,
+                "Arc":                     arc_str,
                 "Duration":                dur_str,
                 "Completeness":            row.get("Completeness", "Partial"),
                 "Depth (mmag)":            row.get("Depth_mmag"),
@@ -4412,7 +4450,7 @@ def render_exoplanet_section(location, start_time, duration, min_alt, max_alt, a
 
     _DISPLAY_COLS = [
         "Planet", "Host Star", "Date", "Ingress", "Mid-Transit", "Egress",
-        "Duration", "Completeness", "Depth (mmag)", "Min Alt During Transit",
+        "Arc", "Duration", "Completeness", "Depth (mmag)", "Min Alt During Transit",
         "Moon Sep During Transit", "Moon Status", "Score", "Quality",
     ]
 
