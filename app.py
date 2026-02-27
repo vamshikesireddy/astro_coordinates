@@ -90,7 +90,7 @@ def get_planet_summary(lat, lon, start_time):
         sun_loc = get_sun(t_moon)
         elongation = sun_loc.separation(moon_loc)
         moon_illum = float(0.5 * (1 - math.cos(elongation.rad))) * 100
-    except:
+    except Exception:
         moon_loc = None
         moon_illum = 0
     
@@ -1513,7 +1513,7 @@ def search_address():
             if g.ok:
                 st.session_state.lat = g.latlng[0]
                 st.session_state.lon = g.latlng[1]
-        except:
+        except Exception:
             pass
 
 _GPS_ERROR_MESSAGES = {
@@ -1572,7 +1572,7 @@ def search_osm(search_term):
     try:
         g = geocoder.arcgis(search_term, maxRows=5, timeout=10)
         return [(r.address, r.latlng) for r in g] if g.ok else []
-    except:
+    except Exception:
         return []
 
 if st_searchbox:
@@ -1605,7 +1605,7 @@ timezone_str = "UTC"
 try:
     if lat is not None and lon is not None:
         timezone_str = tf.timezone_at(lat=lat, lng=lon) or "UTC"
-except:
+except Exception:
     pass
 st.sidebar.caption(f"Timezone: {timezone_str}")
 local_tz = pytz.timezone(timezone_str)
@@ -1886,11 +1886,12 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                     reason_list.append(reason)
                     moon_sep_list.append(ms)
                     moon_status_list.append(mst)
-                except Exception:
+                except Exception as _e:
                     is_obs_list.append(False)
                     reason_list.append("Parse Error")
                     moon_sep_list.append("–")
                     moon_status_list.append("")
+                    print(f"[WARN] DSO observability parse error for row: {_e}", file=sys.stderr)
 
             df_dsos["is_observable"] = is_obs_list
             df_dsos["filter_reason"] = reason_list
