@@ -1107,6 +1107,15 @@ def _load_jpl_cache():
     return read_jpl_cache(JPL_CACHE_FILE)
 
 
+EPHEMERIS_CACHE_FILE = "ephemeris_cache.json"
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_ephemeris_cache():
+    """Load pre-computed ephemeris_cache.json (cached 1h). Returns {} if missing."""
+    from backend.config import read_ephemeris_cache
+    return read_ephemeris_cache(EPHEMERIS_CACHE_FILE)
+
+
 def _save_jpl_cache_entry(section, name, jpl_id):
     """Persist a newly SBDB-resolved JPL ID to jpl_id_cache.json.
 
@@ -1217,6 +1226,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
     # --- Thread-safe: load @st.cache_data maps BEFORE spawning workers ---
     _overrides = _load_jpl_overrides()   # @st.cache_data — safe here (main thread)
     _jpl_cache = _load_jpl_cache()       # plain file read, always safe
+    _ephem = _load_ephemeris_cache()
 
     def _comet_id_local(name):
         """Resolve comet display name → JPL ID using pre-loaded maps (no Streamlit cache calls)."""
@@ -1228,7 +1238,30 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
 
     def _fetch(comet_name):
         import time as _time
-        from backend.sbdb import sbdb_lookup  # import here, not inside except block
+        from backend.sbdb import sbdb_lookup
+        from scripts.update_ephemeris_cache import _lookup_cached_position
+
+        # ── Fast path: use pre-computed ephemeris if available ──
+        target_date = start_time.date().isoformat()   # e.g. "2026-03-05"
+        cached_pos = _lookup_cached_position(_ephem, "comets", comet_name, target_date)
+        if cached_pos is not None:
+            ra_deg, dec_deg = cached_pos
+            sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+            details = calculate_planning_info(sky_coord, location, start_time)
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
+            row = {
+                "Name": comet_name,
+                "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
+                "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "_dec_deg": sky_coord.dec.degree,
+                "Moon Sep (°)": round(moon_sep, 1),
+                "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "_jpl_id_used": "(ephemeris cache)",
+            }
+            row.update(details)
+            return row
+
+        # ── Fallback: live JPL query (date > 30 days out or object not in cache) ──
         jpl_id = _comet_id_local(comet_name)
         try:
             try:
@@ -1250,8 +1283,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
             row.update(details)
             return row
         except Exception as first_exc:
-            # Try full display name first, then stripped jpl_id (catches cases where
-            # display name has parenthetical that SBDB can't handle but stripped form can)
+            # Try full display name first, then stripped jpl_id
             sbdb_id = sbdb_lookup(comet_name)
             if sbdb_id is None and jpl_id != comet_name:
                 sbdb_id = sbdb_lookup(jpl_id)
