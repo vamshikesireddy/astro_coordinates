@@ -1059,11 +1059,40 @@ COMET_ALIASES = {
     "3I/ATLAS": "C/2025 N1 (ATLAS)",
 }
 
-# SPK-ID overrides: comets that must be queried by their JPL SPK-ID (not designation)
-COMET_SPK_IDS = {
-    "240P": "90001202",    # 240P/NEAT Fragment A (primary body)
-    "240P-B": "90001203",  # 240P/NEAT Fragment B
-}
+JPL_OVERRIDES_FILE = "jpl_id_overrides.yaml"
+JPL_CACHE_FILE = "jpl_id_cache.json"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_jpl_overrides():
+    """Load jpl_id_overrides.yaml (cached 1h). Call .clear() after admin saves an override."""
+    from backend.config import read_jpl_overrides
+    return read_jpl_overrides(JPL_OVERRIDES_FILE)
+
+
+def _load_jpl_cache():
+    """Load jpl_id_cache.json — NOT st.cache_data so it reflects live writes."""
+    from backend.config import read_jpl_cache
+    return read_jpl_cache(JPL_CACHE_FILE)
+
+
+def _save_jpl_cache_entry(section, name, jpl_id):
+    """Persist a newly SBDB-resolved JPL ID to jpl_id_cache.json."""
+    from backend.config import read_jpl_cache, write_jpl_cache
+    cache = read_jpl_cache(JPL_CACHE_FILE)
+    cache[section][name] = jpl_id
+    write_jpl_cache(JPL_CACHE_FILE, cache)
+
+
+def _dedup_by_jpl_id(names, id_fn):
+    """Return names list with duplicates removed by resolved JPL ID (first occurrence wins)."""
+    seen, out = set(), []
+    for name in names:
+        jid = id_fn(name)
+        if jid not in seen:
+            seen.add(jid)
+            out.append(name)
+    return out
 
 
 def _resolve_comet_alias(name):
@@ -1072,10 +1101,17 @@ def _resolve_comet_alias(name):
 
 
 def _get_comet_jpl_id(name):
-    """Return the correct JPL Horizons query ID for a comet name.
-    SPK-ID overrides take priority; otherwise strip parenthetical suffix."""
-    if name in COMET_SPK_IDS:
-        return COMET_SPK_IDS[name]
+    """Three-layer JPL ID lookup for comets.
+    1. jpl_id_overrides.yaml  (admin-committed permanent fixes, cached 1h)
+    2. jpl_id_cache.json      (SBDB auto-resolved at runtime)
+    3. Strip parenthetical    (e.g. 'C/2025 N1 (ATLAS)' → 'C/2025 N1')
+    """
+    overrides = _load_jpl_overrides()
+    if name in overrides.get("comets", {}):
+        return overrides["comets"][name]
+    cache = _load_jpl_cache()
+    if name in cache.get("comets", {}):
+        return cache["comets"][name]
     return name.split('(')[0].strip()
 
 
@@ -1182,15 +1218,22 @@ def _asteroid_priority_name(entry):
 
 
 def _asteroid_jpl_id(name):
-    """Return the correct JPL Horizons ID for an asteroid name.
-    - Provisional designations (e.g. '2001 FD58', '2024 YR4') → use full string.
-    - Numbered named asteroids (e.g. '433 Eros') → use just the number.
+    """Three-layer JPL ID lookup for asteroids.
+    1. jpl_id_overrides.yaml  (admin-committed permanent fixes, cached 1h)
+    2. jpl_id_cache.json      (SBDB auto-resolved at runtime)
+    3. Number-extraction logic (e.g. '433 Eros' → '433', '2001 FD58' stays as-is)
     """
+    overrides = _load_jpl_overrides()
+    if name in overrides.get("asteroids", {}):
+        return overrides["asteroids"][name]
+    cache = _load_jpl_cache()
+    if name in cache.get("asteroids", {}):
+        return cache["asteroids"][name]
     import re as _re
     if name and _re.match(r'^\d{4}\s+[A-Z]{1,2}\d', name):
-        return name  # Provisional: year + letter-number combo
+        return name  # Provisional: e.g. '2001 FD58', '2001 SN263'
     if name and name[0].isdigit():
-        return name.split(' ')[0]  # Numbered: "433 Eros" → "433"
+        return name.split(' ')[0]  # Numbered: '433 Eros' → '433'
     return name
 
 
