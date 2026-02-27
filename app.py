@@ -2611,7 +2611,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
                     st.markdown("---")
                     if st.button("🔄 Refresh JPL Data", key="jpl_refresh_comets",
-                                 help="Clears cached JPL results and reloads overrides — use after editing jpl_id_overrides.yaml or jpl_id_cache.json"):
+                                 help="Clears cached JPL results and reloads overrides — use after editing jpl_id_overrides.yaml"):
                         _load_jpl_overrides.clear()
                         get_comet_summary.clear()
                         get_asteroid_summary.clear()
@@ -2621,7 +2621,10 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                     _comet_failures_df = st.session_state.get("_comet_jpl_failures", None)
                     if _comet_failures_df is not None and not _comet_failures_df.empty:
                         st.markdown("### ⚠️ JPL Resolution Failures")
-                        st.caption(f"{len(_comet_failures_df)} comet(s) could not be resolved via JPL Horizons.")
+                        st.caption(f"{len(_comet_failures_df)} comet(s) could not be resolved via JPL Horizons. "
+                                   "This only occurs for newly-added objects not yet in the ephemeris cache, "
+                                   "or queries beyond the 30-day pre-computed window. "
+                                   "Add a permanent fix via jpl_id_overrides.yaml if this persists.")
                         for _, _fail_row in _comet_failures_df.iterrows():
                             _fname = _fail_row["Name"]
                             _ftried = _fail_row.get("_jpl_id_tried", "?")
@@ -3317,7 +3320,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
                 st.markdown("---")
                 if st.button("🔄 Refresh JPL Data", key="jpl_refresh_asteroids",
-                             help="Clears cached JPL results and reloads overrides — use after editing jpl_id_overrides.yaml or jpl_id_cache.json"):
+                             help="Clears cached JPL results and reloads overrides — use after editing jpl_id_overrides.yaml"):
                     _load_jpl_overrides.clear()
                     get_comet_summary.clear()
                     get_asteroid_summary.clear()
@@ -3327,7 +3330,10 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                 _asteroid_failures_df = st.session_state.get("_asteroid_jpl_failures", None)
                 if _asteroid_failures_df is not None and not _asteroid_failures_df.empty:
                     st.markdown("### ⚠️ JPL Resolution Failures")
-                    st.caption(f"{len(_asteroid_failures_df)} asteroid(s) could not be resolved via JPL Horizons.")
+                    st.caption(f"{len(_asteroid_failures_df)} asteroid(s) could not be resolved via JPL Horizons. "
+                               "This only occurs for newly-added objects not yet in the ephemeris cache, "
+                               "or queries beyond the 30-day pre-computed window. "
+                               "Add a permanent fix via jpl_id_overrides.yaml if this persists.")
                     for _, _fail_row in _asteroid_failures_df.iterrows():
                         _fname = _fail_row["Name"]
                         _ftried = _fail_row.get("_jpl_id_tried", "?")
