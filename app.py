@@ -1420,6 +1420,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
     # --- Thread-safe: load @st.cache_data maps BEFORE spawning workers ---
     _overrides = _load_jpl_overrides()   # @st.cache_data — safe here (main thread)
     _jpl_cache = _load_jpl_cache()       # plain file read, always safe
+    _ephem = _load_ephemeris_cache()
 
     def _asteroid_id_local(name):
         """Resolve asteroid display name → JPL ID using pre-loaded maps (no Streamlit cache calls)."""
@@ -1436,13 +1437,36 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
 
     def _fetch(asteroid_name):
         import time as _time
-        from backend.sbdb import sbdb_lookup  # import here, not inside except block
+        from backend.sbdb import sbdb_lookup
+        from scripts.update_ephemeris_cache import _lookup_cached_position
+
+        # ── Fast path: use pre-computed ephemeris if available ──
+        target_date = start_time.date().isoformat()
+        cached_pos = _lookup_cached_position(_ephem, "asteroids", asteroid_name, target_date)
+        if cached_pos is not None:
+            ra_deg, dec_deg = cached_pos
+            sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+            details = calculate_planning_info(sky_coord, location, start_time)
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
+            row = {
+                "Name": asteroid_name,
+                "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
+                "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "_dec_deg": sky_coord.dec.degree,
+                "Moon Sep (°)": round(moon_sep, 1),
+                "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "_jpl_id_used": "(ephemeris cache)",
+            }
+            row.update(details)
+            return row
+
+        # ── Fallback: live JPL query (date > 30 days out or object not in cache) ──
         jpl_id = _asteroid_id_local(asteroid_name)
         try:
             try:
                 _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             except Exception:
-                _time.sleep(1.5)  # one retry after backoff — JPL rate-limits parallel requests
+                _time.sleep(1.5)
                 _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
