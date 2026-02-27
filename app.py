@@ -2019,7 +2019,8 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                     _render_night_plan_builder(
                         df_obs=df_obs_d,
                         start_time=start_time,
-                        night_end=start_time + timedelta(minutes=duration),
+                        night_plan_start=_night_plan_start,
+                        night_plan_end=_night_plan_end,
                         local_tz=local_tz,
                         target_col="Name", ra_col="RA", dec_col="Dec",
                         vmag_col="Magnitude", type_col="Type",
@@ -2201,7 +2202,8 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                         _render_night_plan_builder(
                             df_obs=df_obs_p,
                             start_time=start_time,
-                            night_end=start_time + timedelta(minutes=duration),
+                            night_plan_start=_night_plan_start,
+                            night_plan_end=_night_plan_end,
                             local_tz=local_tz,
                             target_col="Name", ra_col="RA", dec_col="Dec",
                             csv_label="📊 All Planets (CSV)",
@@ -2699,7 +2701,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         _render_night_plan_builder(
                             df_obs=df_obs_c,
                             start_time=start_time,
-                            night_end=start_time + timedelta(minutes=duration),
+                            night_plan_start=_night_plan_start,
+                            night_plan_end=_night_plan_end,
                             local_tz=local_tz,
                             target_col="Name", ra_col="RA", dec_col="Dec",
                             pri_col="Priority",
@@ -2902,7 +2905,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                 _render_night_plan_builder(
                                     df_obs=_df_obs_cat,
                                     start_time=start_time,
-                                    night_end=start_time + timedelta(minutes=duration),
+                                    night_plan_start=_night_plan_start,
+                                    night_plan_end=_night_plan_end,
                                     local_tz=local_tz,
                                     target_col="Name", ra_col="RA", dec_col="Dec",
                                     csv_label="📊 Catalog Comets (CSV)",
@@ -3396,7 +3400,8 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                     _render_night_plan_builder(
                         df_obs=df_obs_a,
                         start_time=start_time,
-                        night_end=start_time + timedelta(minutes=duration),
+                        night_plan_start=_night_plan_start,
+                        night_plan_end=_night_plan_end,
                         local_tz=local_tz,
                         target_col="Name", ra_col="RA", dec_col="Dec",
                         pri_col="Priority",
@@ -4014,7 +4019,8 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 _render_night_plan_builder(
                     df_obs=df_obs,
                     start_time=start_time,
-                    night_end=start_time + timedelta(minutes=duration),
+                    night_plan_start=_night_plan_start,
+                    night_plan_end=_night_plan_end,
                     local_tz=local_tz,
                     target_col=target_col, ra_col=ra_col, dec_col=dec_col,
                     pri_col=pri_col, dur_col=dur_col,
