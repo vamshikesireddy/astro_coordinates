@@ -2569,7 +2569,9 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                 is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
                 for _, row in df_comets.iterrows():
                     # Short-circuit: stub rows from failed JPL lookups
-                    if row.get("_resolve_error"):
+                    # NOTE: use `is True` not truthy check — NaN is truthy and
+                    # would incorrectly flag successful rows that lack _resolve_error
+                    if row.get("_resolve_error") is True:
                         is_obs_list.append(False)
                         reason_list.append(f"JPL lookup failed (tried: {row.get('_jpl_id_tried', '?')})")
                         moon_sep_list.append("—")
@@ -3257,7 +3259,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
             is_obs_list, reason_list, moon_sep_list, moon_status_list = [], [], [], []
             for _, row in df_asteroids.iterrows():
                 # Short-circuit: stub rows from failed JPL lookups
-                if row.get("_resolve_error"):
+                if row.get("_resolve_error") is True:
                     is_obs_list.append(False)
                     reason_list.append(f"JPL lookup failed (tried: {row.get('_jpl_id_tried', '?')})")
                     moon_sep_list.append("—")
