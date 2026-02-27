@@ -1427,6 +1427,23 @@ def _resolve_asteroid_alias(name):
     return ASTEROID_ALIASES.get(name, name).upper()
 
 
+def _build_priority_provisionals(priority_set):
+    """Build a mapping of provisional designation → full YAML name.
+
+    For entries like "162882 (2001 FD58)", extracts "2001 FD58" as a key.
+    Used so scraped bare provisionals ("2001 FD58") match their numbered
+    YAML counterparts without requiring a manual alias entry.
+    """
+    import re as _re
+    _prov_re = _re.compile(r'\(([^)]+)\)')
+    result = {}
+    for name in priority_set:
+        m = _prov_re.search(name)
+        if m:
+            result[m.group(1).upper()] = name
+    return result
+
+
 def _asteroid_priority_name(entry):
     return entry["name"] if isinstance(entry, dict) else entry
 
@@ -1952,9 +1969,10 @@ for _i, _d in enumerate(_AZ_LABELS):
             az_dirs.add(_d)
         st.caption(_AZ_CAPTIONS[_d])
 if _az_selected_count > 0 and _az_selected_count < len(_AZ_LABELS):
-    if st.sidebar.button("✕ Clear direction filter", key="az_clear_all", use_container_width=True):
+    def _clear_az_dirs():
         for _d in _AZ_LABELS:
             st.session_state[f"az_{_d}"] = False
+    st.sidebar.button("✕ Clear direction filter", key="az_clear_all", use_container_width=True, on_click=_clear_az_dirs)
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
@@ -2176,8 +2194,8 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 _df_sorted_d = _sort_df_like_chart(df_obs_d, _chart_sort_d) if _chart_sort_d else df_obs_d
                 display_dso_table(_df_sorted_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
-
-                with st.expander("📅 Night Plan Builder", expanded=False):
+                st.markdown("---")
+                with st.expander("📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
                         df_obs=df_obs_d,
                         start_time=start_time,
@@ -2209,8 +2227,12 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
 
     # --- Select Target for Trajectory ---
     st.markdown("---")
-    st.subheader("Select Target for Trajectory")
-    st.caption("Independent from the batch table above — pick any catalog to find your trajectory target.")
+    st.subheader("2. Select Target for Trajectory")
+    st.caption(
+        "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
+        "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
+        "azimuth filter, declination window, and moon separation) — adjust those first if needed."
+    )
 
     col_tcat, col_ttype = st.columns([1, 2])
     with col_tcat:
@@ -2361,8 +2383,8 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                     show_p = [c for c in display_cols_p if c in _df_sorted_p.columns]
                     st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
-
-                    with st.expander("📅 Night Plan Builder", expanded=False):
+                    st.markdown("---")
+                    with st.expander("📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
                             df_obs=df_obs_p,
                             start_time=start_time,
@@ -2865,8 +2887,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         " = Unistellar Citizen Science priority target",
                         unsafe_allow_html=True
                     )
-
-                    with st.expander("📅 Night Plan Builder", expanded=False):
+                    st.markdown("---")
+                    with st.expander("📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
                             df_obs=df_obs_c,
                             start_time=start_time,
@@ -2897,7 +2919,12 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
         # Select comet for trajectory
         st.markdown("---")
-        st.subheader("Select Comet for Trajectory")
+        st.subheader("2. Select Comet for Trajectory")
+        st.caption(
+            "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
+            "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
+            "azimuth filter, declination window, and moon separation) — adjust those first if needed."
+        )
         comet_options = active_comets + ["Custom Comet..."]
         selected_target = st.selectbox("Select a Comet", comet_options, key="comet_traj_sel")
         st.markdown("ℹ️ *Target not listed? Use 'Custom Comet...' or submit a request above.*")
@@ -3071,8 +3098,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                 _df_sorted_cat[[c for c in _show_cols_cat if c in _df_sorted_cat.columns]],
                                 hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG
                             )
-
-                            with st.expander("📅 Night Plan Builder", expanded=False):
+                            st.markdown("---")
+                            with st.expander("📅 Night Plan Builder", expanded=True):
                                 _render_night_plan_builder(
                                     df_obs=_df_obs_cat,
                                     start_time=start_time,
@@ -3105,7 +3132,12 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
             # --- Trajectory picker for Catalog mode ---
             st.markdown("---")
-            st.subheader("Select Catalog Comet for Trajectory")
+            st.subheader("2. Select Catalog Comet for Trajectory")
+            st.caption(
+                "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
+                "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
+                "azimuth filter, declination window, and moon separation) — adjust those first if needed."
+            )
             if filtered_cat:
                 _cat_options = [_c["designation"] for _c in filtered_cat] + ["Custom Comet..."]
                 _cat_selected = st.selectbox("Select a Comet", _cat_options, key="cat_traj_sel")
@@ -3168,9 +3200,14 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
         if scraped:
             scraped_upper = {_resolve_asteroid_alias(a) for a in scraped}
             priority_set_upper = {n.upper() for n in priority_set}
+            # Map provisional designations extracted from YAML names → full YAML name
+            # e.g. "162882 (2001 FD58)" → {"2001 FD58": "162882 (2001 FD58)"}
+            priority_provisionals = _build_priority_provisionals(priority_set)
 
             # Detect ADDITIONS — on Unistellar but not in our priority list
-            new_from_page = [a for a in scraped if _resolve_asteroid_alias(a) not in priority_set_upper]
+            new_from_page = [a for a in scraped
+                             if _resolve_asteroid_alias(a) not in priority_set_upper
+                             and a.upper() not in priority_provisionals]
             if new_from_page:
                 existing_pending = []
                 if os.path.exists(ASTEROID_PENDING_FILE):
@@ -3191,8 +3228,18 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                         "_Auto-detected by Astro Planner (daily scrape)_"
                     )
 
+            # YAML names covered by scraped bare provisionals
+            # e.g. scraped "2001 FD58" covers YAML "162882 (2001 FD58)"
+            scraped_via_provisional = {
+                priority_provisionals[a.upper()]
+                for a in scraped if a.upper() in priority_provisionals
+            }
+
             # Detect REMOVALS — in our priority list but no longer on Unistellar
-            removed_from_page = [n for n in priority_set if n.upper() not in scraped_upper and _resolve_asteroid_alias(n) not in scraped_upper]
+            removed_from_page = [n for n in priority_set
+                                  if n.upper() not in scraped_upper
+                                  and _resolve_asteroid_alias(n) not in scraped_upper
+                                  and n not in scraped_via_provisional]
             if removed_from_page:
                 existing_pending = []
                 if os.path.exists(ASTEROID_PENDING_FILE):
@@ -3249,7 +3296,10 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
             scraped_a = st.session_state.get("asteroid_scraped_priority", [])
             if scraped_a:
                 priority_set_upper = {n.upper() for n in priority_set}
-                new_from_page = [a for a in scraped_a if _resolve_asteroid_alias(a) not in priority_set_upper]
+                priority_provisionals_d = _build_priority_provisionals(priority_set)
+                new_from_page = [a for a in scraped_a
+                                 if _resolve_asteroid_alias(a) not in priority_set_upper
+                                 and a.upper() not in priority_provisionals_d]
                 if new_from_page:
                     st.info(
                         f"🔍 **{len(new_from_page)} new asteroid(s)** detected on the Unistellar missions page "
@@ -3571,8 +3621,8 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                     " = Unistellar Planetary Defense priority target",
                     unsafe_allow_html=True
                 )
-
-                with st.expander("📅 Night Plan Builder", expanded=False):
+                st.markdown("---")
+                with st.expander("📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
                         df_obs=df_obs_a,
                         start_time=start_time,
@@ -3603,7 +3653,12 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
     # Select asteroid for trajectory
     st.markdown("---")
-    st.subheader("Select Asteroid for Trajectory")
+    st.subheader("2. Select Asteroid for Trajectory")
+    st.caption(
+        "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
+        "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
+        "azimuth filter, declination window, and moon separation) — adjust those first if needed."
+    )
     asteroid_options = active_asteroids + ["Custom Asteroid..."]
     selected_target = st.selectbox("Select an Asteroid", asteroid_options, key="asteroid_traj_sel")
     st.markdown("ℹ️ *Target not listed? Use 'Custom Asteroid...' or submit a request above. Find the exact designation in the [JPL Small-Body Database](https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html).*")
@@ -4194,7 +4249,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
 
             # ── Night Plan Builder ─────────────────────────────────────────────
             st.markdown("---")
-            with st.expander("📅 Night Plan Builder", expanded=False):
+            with st.expander("📅 Night Plan Builder", expanded=True):
                 _render_night_plan_builder(
                     df_obs=df_obs,
                     start_time=start_time,
@@ -4214,7 +4269,11 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 )
 
             st.markdown("---")
-            st.subheader("Select Target for Trajectory")
+            st.subheader("2. Select Target for Trajectory")
+            st.caption(
+                "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
+                "Uses your **sidebar location and session start time** — adjust those first if needed."
+            )
             targets = df_display[target_col].unique()
             obj_name = st.selectbox("Select Target", targets)
 
@@ -4300,7 +4359,7 @@ elif target_mode == "Manual RA/Dec":
 # ---------------------------
 # MAIN: Calculation & Output
 # ---------------------------
-st.header("2. Trajectory Results")
+st.header("3. Trajectory Results")
 
 if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved):
     if lat is None or lon is None:
