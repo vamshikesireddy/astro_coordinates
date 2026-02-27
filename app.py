@@ -657,7 +657,7 @@ def _apply_night_plan_filters(
     vmag_col, vmag_range,
     type_col, sel_types,
     disc_col, disc_days,
-    local_tz, start_time, win_start_h, win_end_h,
+    win_start_dt, win_end_dt,
     sel_moon, all_moon_statuses,
 ):
     """Apply all night plan filters to df and return the filtered copy.
@@ -680,12 +680,9 @@ def _apply_night_plan_filters(
     disc_col, disc_days : str | None, int | None
         Discovery-date column name and recency threshold in days.
         Pass ``None`` for either (or ``disc_days=365``) to skip.
-    local_tz : tzinfo
-        Local timezone used to localise the observation window datetimes.
-    start_time : datetime
-        Tonight's start time (date component used to build window start).
-    win_start_h, win_end_h : int
-        Hour (24-h) for window start (tonight) and end (next morning).
+    win_start_dt, win_end_dt : datetime (tz-aware)
+        Observation window start and end as fully-specified tz-aware datetimes.
+        Replaces the old integer-hour + timedelta(days=1) approach.
     sel_moon, all_moon_statuses : list | None, list
         Selected Moon Status labels and the full list of statuses.
         Filtering is skipped when ``sel_moon`` is ``None`` or equals
@@ -726,14 +723,8 @@ def _apply_night_plan_filters(
         )
         out = out[_disc_parsed.isna() | (_disc_parsed >= _disc_cutoff)]
 
-    # Filter: observation window — start is tonight, end is always next morning
-    _win_start_dt = local_tz.localize(
-        datetime(start_time.year, start_time.month, start_time.day, win_start_h, 0)
-    )
-    _win_end_dt = local_tz.localize(
-        datetime(start_time.year, start_time.month, start_time.day, win_end_h, 0)
-        + timedelta(days=1)
-    )
+    # Filter: observation window — win_start_dt and win_end_dt are tz-aware datetimes
+    # passed directly from the caller (no integer-hour arithmetic needed here).
 
     def _in_obs_window(row):
         status = str(row.get('Status', ''))
@@ -745,7 +736,7 @@ def _apply_night_plan_filters(
             return True  # keep if timing unknown
         try:
             # Visible during window if rises before window ends AND sets after window starts
-            return r < _win_end_dt and s > _win_start_dt
+            return r < win_end_dt and s > win_start_dt
         except (TypeError, ValueError):
             return True
 
@@ -761,12 +752,13 @@ def _apply_night_plan_filters(
 
 
 def _render_night_plan_builder(
-    df_obs, start_time, night_end, local_tz,
+    df_obs, start_time, night_plan_start, night_plan_end, local_tz,
     target_col="Name", ra_col="RA", dec_col="Dec",
     pri_col=None, dur_col=None, vmag_col=None,
     type_col=None, disc_col=None, link_col=None,
     csv_label="All Targets (CSV)", csv_data=None,
     csv_filename="targets.csv", section_key="",
+    duration_minutes=None,
 ):
     """Render a Night Plan Builder UI inside an already-open st.expander.
 
@@ -876,31 +868,55 @@ def _render_night_plan_builder(
             help="Deselect '⛔ Avoid' to exclude targets too close to the Moon.",
         )
 
-    # Row 2b: observation window sliders
-    _start_default = min(max(start_time.hour, 14), 23)
-    _night_end_h = night_end.hour
-    _end_default = _night_end_h if _night_end_h <= 12 else 6
-    _row_wnd = st.columns(2)
-    with _row_wnd[0]:
-        _win_start_h = st.slider(
-            "Start (tonight)",
-            min_value=14, max_value=23,
-            value=_start_default,
-            format="%02d:00",
-            key=f"{section_key}_win_start",
-            help="Slide left to begin your plan earlier in the evening.",
+    # Row 2b: unified night session window slider
+    _st_naive = start_time.replace(tzinfo=None)
+    # Round sidebar start down to nearest 30 min for slider alignment.
+    _st_rounded = _st_naive.replace(
+        minute=(_st_naive.minute // 30) * 30, second=0, microsecond=0
+    )
+    # Slider min: earlier of sidebar time or 18:00 night start, so pre-18:00
+    # sidebar times (e.g. 14:30) aren't silently clamped to 18:00.
+    _slider_min = min(_st_rounded, night_plan_start)
+    _slider_default_start = min(_st_rounded, night_plan_end - timedelta(minutes=30))
+    # Default right handle: start + imaging duration (from sidebar) capped at
+    # night_plan_end, so the slider pre-fills the user's stated session window.
+    if duration_minutes:
+        _slider_default_end = min(
+            _st_naive.replace(second=0, microsecond=0) + timedelta(minutes=duration_minutes),
+            night_plan_end,
         )
-    with _row_wnd[1]:
-        _win_end_h = st.slider(
-            "End (next morning)",
-            min_value=0, max_value=12,
-            value=_end_default,
-            format="%02d:00",
-            key=f"{section_key}_win_end",
-            help="Slide right to extend your session later into the morning.",
-        )
-    _win_hours = (_win_end_h + 24 - _win_start_h) % 24 or 24
-    st.caption(f"Window: **{_win_start_h:02d}:00** tonight → **{_win_end_h:02d}:00** next morning — **{_win_hours} hrs**")
+    else:
+        _slider_default_end = night_plan_end
+
+    # Sync slider to sidebar: when the sidebar time OR duration changes, reset
+    # the stored slider value so the handles track the new sidebar values.
+    # Always manage state via session_state — never pass value= to st.slider
+    # alongside a manual st.session_state assignment (causes Streamlit warning).
+    _ss_key = f"{section_key}_win_range"
+    _last_key = f"{section_key}_last_start"
+    _last_dur_key = f"{section_key}_last_dur"
+    if (st.session_state.get(_last_key) != _st_rounded
+            or st.session_state.get(_last_dur_key) != duration_minutes):
+        st.session_state[_last_key] = _st_rounded
+        st.session_state[_last_dur_key] = duration_minutes
+        st.session_state[_ss_key] = (_slider_default_start, _slider_default_end)
+
+    _win_range = st.slider(
+        "Session window",
+        min_value=_slider_min,
+        max_value=night_plan_end,
+        step=timedelta(minutes=30),
+        format="MMM DD HH:mm",
+        key=_ss_key,
+        help="Drag the handles to set the start and end of your observing session.",
+    )
+    _win_start_dt = local_tz.localize(_win_range[0])
+    _win_end_dt = local_tz.localize(_win_range[1])
+    _win_hours = max(0, int((_win_end_dt - _win_start_dt).total_seconds() / 3600))
+    st.caption(
+        f"Window: **{_win_range[0].strftime('%b %d %H:%M')}** → "
+        f"**{_win_range[1].strftime('%b %d %H:%M')}** — **{_win_hours} hrs**"
+    )
 
     # Sort radio
     _sort_by = st.radio(
@@ -953,8 +969,7 @@ def _render_night_plan_builder(
                 vmag_col=vmag_col,      vmag_range=_vmag_range,
                 type_col=type_col,      sel_types=_sel_types,
                 disc_col=disc_col,      disc_days=_disc_days,
-                local_tz=local_tz,      start_time=start_time,
-                win_start_h=_win_start_h, win_end_h=_win_end_h,
+                win_start_dt=_win_start_dt, win_end_dt=_win_end_dt,
                 sel_moon=_sel_moon,     all_moon_statuses=_all_moon_statuses,
             )
 
@@ -1041,7 +1056,7 @@ def _render_night_plan_builder(
                         )
                     with _dl2:
                         _pdf = generate_plan_pdf(
-                            _scheduled, start_time, night_end,
+                            _scheduled, _win_start_dt, _win_end_dt,
                             target_col, _plan_link_col, dur_col, pri_col,
                             ra_col, dec_col, vmag_col,
                         )
@@ -1090,6 +1105,15 @@ def _load_jpl_cache():
     """Load jpl_id_cache.json — NOT st.cache_data so it reflects live writes."""
     from backend.config import read_jpl_cache
     return read_jpl_cache(JPL_CACHE_FILE)
+
+
+EPHEMERIS_CACHE_FILE = "ephemeris_cache.json"
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_ephemeris_cache():
+    """Load pre-computed ephemeris_cache.json (cached 1h). Returns {} if missing."""
+    from backend.config import read_ephemeris_cache
+    return read_ephemeris_cache(EPHEMERIS_CACHE_FILE)
 
 
 def _save_jpl_cache_entry(section, name, jpl_id):
@@ -1202,6 +1226,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
     # --- Thread-safe: load @st.cache_data maps BEFORE spawning workers ---
     _overrides = _load_jpl_overrides()   # @st.cache_data — safe here (main thread)
     _jpl_cache = _load_jpl_cache()       # plain file read, always safe
+    _ephem = _load_ephemeris_cache()
 
     def _comet_id_local(name):
         """Resolve comet display name → JPL ID using pre-loaded maps (no Streamlit cache calls)."""
@@ -1213,7 +1238,30 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
 
     def _fetch(comet_name):
         import time as _time
-        from backend.sbdb import sbdb_lookup  # import here, not inside except block
+        from backend.sbdb import sbdb_lookup
+        from backend.config import lookup_cached_position
+
+        # ── Fast path: use pre-computed ephemeris if available ──
+        target_date = start_time.date().isoformat()   # e.g. "2026-03-05"
+        cached_pos = lookup_cached_position(_ephem, "comets", comet_name, target_date)
+        if cached_pos is not None:
+            ra_deg, dec_deg = cached_pos
+            sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+            details = calculate_planning_info(sky_coord, location, start_time)
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
+            row = {
+                "Name": comet_name,
+                "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
+                "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "_dec_deg": sky_coord.dec.degree,
+                "Moon Sep (°)": round(moon_sep, 1),
+                "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "_jpl_id_used": "(ephemeris cache)",
+            }
+            row.update(details)
+            return row
+
+        # ── Fallback: live JPL query (date > 30 days out or object not in cache) ──
         jpl_id = _comet_id_local(comet_name)
         try:
             try:
@@ -1235,8 +1283,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
             row.update(details)
             return row
         except Exception as first_exc:
-            # Try full display name first, then stripped jpl_id (catches cases where
-            # display name has parenthetical that SBDB can't handle but stripped form can)
+            # Try full display name first, then stripped jpl_id
             sbdb_id = sbdb_lookup(comet_name)
             if sbdb_id is None and jpl_id != comet_name:
                 sbdb_id = sbdb_lookup(jpl_id)
@@ -1373,6 +1420,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
     # --- Thread-safe: load @st.cache_data maps BEFORE spawning workers ---
     _overrides = _load_jpl_overrides()   # @st.cache_data — safe here (main thread)
     _jpl_cache = _load_jpl_cache()       # plain file read, always safe
+    _ephem = _load_ephemeris_cache()
 
     def _asteroid_id_local(name):
         """Resolve asteroid display name → JPL ID using pre-loaded maps (no Streamlit cache calls)."""
@@ -1389,13 +1437,36 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
 
     def _fetch(asteroid_name):
         import time as _time
-        from backend.sbdb import sbdb_lookup  # import here, not inside except block
+        from backend.sbdb import sbdb_lookup
+        from backend.config import lookup_cached_position
+
+        # ── Fast path: use pre-computed ephemeris if available ──
+        target_date = start_time.date().isoformat()
+        cached_pos = lookup_cached_position(_ephem, "asteroids", asteroid_name, target_date)
+        if cached_pos is not None:
+            ra_deg, dec_deg = cached_pos
+            sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+            details = calculate_planning_info(sky_coord, location, start_time)
+            moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
+            row = {
+                "Name": asteroid_name,
+                "RA": sky_coord.ra.to_string(unit=u.hour, sep=('h ', 'm ', 's'), precision=0, pad=True),
+                "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
+                "_dec_deg": sky_coord.dec.degree,
+                "Moon Sep (°)": round(moon_sep, 1),
+                "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "_jpl_id_used": "(ephemeris cache)",
+            }
+            row.update(details)
+            return row
+
+        # ── Fallback: live JPL query (date > 30 days out or object not in cache) ──
         jpl_id = _asteroid_id_local(asteroid_name)
         try:
             try:
                 _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             except Exception:
-                _time.sleep(1.5)  # one retry after backoff — JPL rate-limits parallel requests
+                _time.sleep(1.5)
                 _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
@@ -1558,7 +1629,7 @@ with st.expander("ℹ️ How to Use"):
 
     ### 4. Night Plan Builder
     Every section's **Observable** tab has a **📅 Night Plan Builder** expander. Use it to build a sorted target list for the night:
-    *   **Observation window** — Drag the **Start (tonight)** slider (14:00–23:00) and **End (next morning)** slider (00:00–12:00) to define your session. End is always interpreted as the next morning. A live summary shows the total window duration.
+    *   **Observation window** — Drag the **Session window** range slider to set the start and end of your session. The slider spans the full observation night (18:00 tonight → 12:00 next morning). Both handles show the actual date and time (e.g. `Feb 27 22:00`) so you always know which night you're planning for. Step is 30 minutes.
     *   **Sort by Set Time or Transit Time** — controls the order of the plan only; both sliders together determine which targets are included.
     *   **Filter** by Moon Status, priority level, magnitude, event type, and discovery recency.
     *   **Export** the plan as CSV or PDF (PDF is priority-colour-coded; Cosmic Cataclysm PDFs also include `unistellar://` deeplinks).
@@ -1577,7 +1648,8 @@ def _init_session_state(now):
     if "selected_date" not in ss:
         ss["selected_date"] = now.date()
     if "selected_time" not in ss:
-        if now.hour >= CONFIG["default_session_hour"]:
+        if now.hour >= CONFIG["default_session_hour"] or now.hour < 6:
+            # In the active observation window (6PM–6AM) → use current time
             ss["selected_time"] = now.time()
         else:
             ss["selected_time"] = now.replace(
@@ -1717,7 +1789,7 @@ if st.session_state.last_timezone != timezone_str:
     st.session_state.last_timezone = timezone_str
     now_local = datetime.now(local_tz)
     st.session_state.selected_date = now_local.date()
-    if now_local.hour >= CONFIG["default_session_hour"]:
+    if now_local.hour >= CONFIG["default_session_hour"] or now_local.hour < 6:
         st.session_state.selected_time = now_local.time()
     else:
         st.session_state.selected_time = now_local.replace(hour=CONFIG["default_session_hour"], minute=0, second=0, microsecond=0).time()
@@ -1765,6 +1837,13 @@ show_obs_window = st.sidebar.checkbox("Show observation window on charts", value
 # Pre-compute naive datetimes for the observation window overlay (used in plot_visibility_timeline)
 obs_start_naive = start_time.replace(tzinfo=None)
 obs_end_naive = (start_time + timedelta(minutes=duration)).replace(tzinfo=None)
+
+# Night plan window: 18:00 on the anchor date → 12:00 the next day (18-hour span).
+# Anchor = yesterday when start_time is in the early-morning window (midnight–6AM),
+# otherwise today. This ensures a midnight user sees last night's full evening session.
+_night_anchor = (start_time - timedelta(days=1)).date() if start_time.hour < 6 else start_time.date()
+_night_plan_start = datetime(_night_anchor.year, _night_anchor.month, _night_anchor.day, 18, 0)
+_night_plan_end = _night_plan_start + timedelta(hours=18)  # → 12:00 next day
 
 # 5. Observational Filters
 st.sidebar.subheader("🔭 Observational Filters")
@@ -2022,7 +2101,8 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                     _render_night_plan_builder(
                         df_obs=df_obs_d,
                         start_time=start_time,
-                        night_end=start_time + timedelta(minutes=duration),
+                        night_plan_start=_night_plan_start,
+                        night_plan_end=_night_plan_end,
                         local_tz=local_tz,
                         target_col="Name", ra_col="RA", dec_col="Dec",
                         vmag_col="Magnitude", type_col="Type",
@@ -2030,6 +2110,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                         csv_data=df_dsos,
                         csv_filename=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
                         section_key=f"dso_{category.lower().replace(' ', '_')}",
+                        duration_minutes=duration,
                     )
 
             with tab_filt_d:
@@ -2204,12 +2285,14 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                         _render_night_plan_builder(
                             df_obs=df_obs_p,
                             start_time=start_time,
-                            night_end=start_time + timedelta(minutes=duration),
+                            night_plan_start=_night_plan_start,
+                            night_plan_end=_night_plan_end,
                             local_tz=local_tz,
                             target_col="Name", ra_col="RA", dec_col="Dec",
                             csv_label="📊 All Planets (CSV)",
                             csv_filename="planets_visibility.csv",
                             section_key="planet",
+                            duration_minutes=duration,
                         )
                 else:
                     _az_order = {d: i for i, d in enumerate(_AZ_LABELS)}
@@ -2702,13 +2785,15 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         _render_night_plan_builder(
                             df_obs=df_obs_c,
                             start_time=start_time,
-                            night_end=start_time + timedelta(minutes=duration),
+                            night_plan_start=_night_plan_start,
+                            night_plan_end=_night_plan_end,
                             local_tz=local_tz,
                             target_col="Name", ra_col="RA", dec_col="Dec",
                             pri_col="Priority",
                             csv_label="📊 All Comets (CSV)",
                             csv_filename="comets_visibility.csv",
                             section_key="comet_mylist",
+                            duration_minutes=duration,
                         )
 
                 with tab_filt_c:
@@ -2905,13 +2990,15 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                 _render_night_plan_builder(
                                     df_obs=_df_obs_cat,
                                     start_time=start_time,
-                                    night_end=start_time + timedelta(minutes=duration),
+                                    night_plan_start=_night_plan_start,
+                                    night_plan_end=_night_plan_end,
                                     local_tz=local_tz,
                                     target_col="Name", ra_col="RA", dec_col="Dec",
                                     csv_label="📊 Catalog Comets (CSV)",
                                     csv_data=_df_cat,
                                     csv_filename="catalog_comets_visibility.csv",
                                     section_key="comet_catalog",
+                                    duration_minutes=duration,
                                 )
                         with _tab_filt_cat:
                             st.caption("Comets not meeting your filters within the observation window.")
@@ -3399,13 +3486,15 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                     _render_night_plan_builder(
                         df_obs=df_obs_a,
                         start_time=start_time,
-                        night_end=start_time + timedelta(minutes=duration),
+                        night_plan_start=_night_plan_start,
+                        night_plan_end=_night_plan_end,
                         local_tz=local_tz,
                         target_col="Name", ra_col="RA", dec_col="Dec",
                         pri_col="Priority",
                         csv_label="📊 All Asteroids (CSV)",
                         csv_filename="asteroids_visibility.csv",
                         section_key="asteroid",
+                        duration_minutes=duration,
                     )
 
             with tab_filt_a:
@@ -4017,7 +4106,8 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 _render_night_plan_builder(
                     df_obs=df_obs,
                     start_time=start_time,
-                    night_end=start_time + timedelta(minutes=duration),
+                    night_plan_start=_night_plan_start,
+                    night_plan_end=_night_plan_end,
                     local_tz=local_tz,
                     target_col=target_col, ra_col=ra_col, dec_col=dec_col,
                     pri_col=pri_col, dur_col=dur_col,
@@ -4027,6 +4117,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                     csv_data=df_alerts,
                     csv_filename="unistellar_targets.csv",
                     section_key="cosmic",
+                    duration_minutes=duration,
                 )
 
             st.markdown("---")

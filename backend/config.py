@@ -99,3 +99,25 @@ def write_jpl_cache(path, data):
             json.dump(data, f, indent=2)
     except Exception:
         pass
+
+
+def read_ephemeris_cache(path):
+    """Load ephemeris_cache.json → dict, or {} if missing/corrupt."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def lookup_cached_position(cache, section, name, target_date_str):
+    """Return (ra, dec) from pre-computed ephemeris cache for a given object+date, or None."""
+    obj = cache.get(section, {}).get(name)
+    if not obj:
+        return None
+    for pos in obj.get('positions', []):
+        if pos['date'] == target_date_str:
+            return pos['ra'], pos['dec']
+    return None

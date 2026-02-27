@@ -68,6 +68,14 @@ def resolve_all(names, section, strip_fn, overrides):
         if spk_id is None and query != name:
             spk_id = sbdb_lookup(name)   # also try full display name
         if spk_id:
+            # Guard: SBDB internal IDs in [20M, 30M) are rejected by Horizons
+            try:
+                if 20_000_000 <= int(spk_id) < 30_000_000:
+                    print(f"  SKIP (SBDB internal ID, Horizons rejects): {name!r} -> {spk_id!r}")
+                    failed.append(name)
+                    continue
+            except (ValueError, TypeError):
+                pass
             print(f"  OK:   {name!r} -> SPK-ID {spk_id!r} (queried: {query!r})")
             resolved[name] = spk_id
         else:
