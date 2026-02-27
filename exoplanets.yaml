@@ -1,2 +1,7 @@
+# Exoplanet missions — managed by the admin panel and GH Actions sync
+# cancelled: planets to exclude even if detected on the Unistellar page
+# priorities: map of planet_name → priority label (set by admin panel or GH Actions)
+
 cancelled: []
+
 priorities: {}
