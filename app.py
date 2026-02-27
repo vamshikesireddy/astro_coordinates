@@ -2881,10 +2881,11 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                     )
 
                 df_obs_c = df_comets[df_comets["is_observable"]].copy()
+                _add_peak_alt_session(df_obs_c, location, start_time, start_time + timedelta(minutes=duration))
                 df_filt_c = df_comets[~df_comets["is_observable"]].copy()
 
                 display_cols_c = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                                  "RA", "_dec_deg", "Status", "Moon Sep (°)", "Moon Status"]
+                                  "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
                 def display_comet_table(df_in):
                     show = [c for c in display_cols_c if c in df_in.columns]
