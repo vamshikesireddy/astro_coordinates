@@ -1502,7 +1502,9 @@ def get_exoplanet_summary(lat, lon, tz_name, start_time):
     from backend.swarthmore import fetch_transit_windows
 
     # 1. Get Unistellar active target list
-    planet_names = scrape_unistellar_exoplanets()
+    _exo_scraped = scrape_unistellar_exoplanets()
+    planet_names = _exo_scraped.get("active", [])
+    _priority_from_scrape = _exo_scraped.get("priority", [])
     if not planet_names:
         return pd.DataFrame()
 
@@ -1634,12 +1636,21 @@ def get_exoplanet_summary(lat, lon, tz_name, start_time):
 
     result = pd.DataFrame(rows)
 
-    # Apply priority overrides from exoplanets.yaml
+    # Apply priority overrides from exoplanets.yaml + scrape-detected headings
     pri_map = cfg.get("priorities", {})
-    if pri_map:
-        result["Unistellar Priority"] = result["Planet"].map(
-            lambda p: pri_map.get(p, pri_map.get(p.rsplit(" ", 1)[0], ""))
-        )
+    _priority_set = {p.lower().strip() for p in _priority_from_scrape}
+
+    def _get_priority(planet_name):
+        yaml_pri = pri_map.get(planet_name, pri_map.get(planet_name.rsplit(" ", 1)[0], ""))
+        if yaml_pri:
+            return yaml_pri
+        if planet_name.lower().strip() in _priority_set:
+            return "⭐ PRIORITY"
+        return ""
+
+    result["Unistellar Priority"] = result["Planet"].map(_get_priority)
+    if not result["Unistellar Priority"].any():
+        result = result.drop(columns=["Unistellar Priority"])
 
     return result
 

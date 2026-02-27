@@ -227,25 +227,42 @@ _EXOPLANET_RE = re.compile(
 
 
 def scrape_unistellar_exoplanets():
-    """Scrape Unistellar exoplanet missions page → list of active planet name strings.
+    """Scrape Unistellar exoplanet missions page.
 
-    Returns [] on failure (network error, scrape error, no matches).
-    Uses same Scrapling/StealthyFetcher pattern as other scrapers.
+    Returns dict with two keys:
+      "active":   list[str] — all detected planet names
+      "priority": list[str] — subset whose names appear as h2/h3 headings
+                              (Unistellar uses headings for featured campaigns)
+
+    Returns {"active": [], "priority": []} on failure.
     """
+    _empty = {"active": [], "priority": []}
     url = "https://science.unistellar.com/exoplanets/missions/"
     try:
         _ensure_browser()
         page = _fetch_page(url, headless=True, network_idle=True)
         if page is None:
-            return []
-        # Gather text from all heading + text elements
+            return _empty
+
+        # Priority: names that appear as headings (h2/h3 = featured campaigns)
+        heading_text = " ".join(
+            _deep_text(el) for el in page.css("h2,h3")
+        )
+        priority_matches = list(dict.fromkeys(
+            _EXOPLANET_RE.findall(heading_text)
+        ))
+
+        # Active: all names anywhere on page
         elements = page.css("h1,h2,h3,h4,h5,p,.et_pb_text_inner,div")
-        text = " ".join(_deep_text(el) for el in elements)
-        found = list(dict.fromkeys(_EXOPLANET_RE.findall(text)))
-        return found
+        full_text = " ".join(_deep_text(el) for el in elements)
+        active_matches = list(dict.fromkeys(
+            _EXOPLANET_RE.findall(full_text)
+        ))
+
+        return {"active": active_matches, "priority": priority_matches}
     except Exception as e:
         logger.error(f"Failed to scrape Unistellar exoplanets page: {e}")
-        return []
+        return _empty
 
 
 if __name__ == "__main__":
