@@ -2527,8 +2527,9 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                     else:
                                         st.warning("Enter a JPL ID before saving.")
                                 st.divider()
-                    else:
+                    elif _comet_failures_df is not None:
                         st.success("✅ All comets resolved via JPL Horizons.")
+                    # else: _comet_failures_df is None → data not yet computed, show nothing
 
         # Batch visibility table
         if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
@@ -3217,8 +3218,9 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                                 else:
                                     st.warning("Enter a JPL ID before saving.")
                             st.divider()
-                else:
+                elif _asteroid_failures_df is not None:
                     st.success("✅ All asteroids resolved via JPL Horizons.")
+                # else: _asteroid_failures_df is None → data not yet computed, show nothing
 
     # Batch visibility table
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
