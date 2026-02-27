@@ -1547,7 +1547,7 @@ with st.expander("ℹ️ How to Use"):
 
     ### 4. Night Plan Builder
     Every section's **Observable** tab has a **📅 Night Plan Builder** expander. Use it to build a sorted target list for the night:
-    *   **Observation window** — Drag the **Start (tonight)** slider (14:00–23:00) and **End (next morning)** slider (00:00–12:00) to define your session. End is always interpreted as the next morning. A live summary shows the total window duration.
+    *   **Observation window** — Drag the **Session window** range slider to set the start and end of your session. The slider spans the full observation night (18:00 tonight → 12:00 next morning). Both handles show the actual date and time (e.g. `Feb 27 22:00`) so you always know which night you're planning for. Step is 30 minutes.
     *   **Sort by Set Time or Transit Time** — controls the order of the plan only; both sliders together determine which targets are included.
     *   **Filter** by Moon Status, priority level, magnitude, event type, and discovery recency.
     *   **Export** the plan as CSV or PDF (PDF is priority-colour-coded; Cosmic Cataclysm PDFs also include `unistellar://` deeplinks).
