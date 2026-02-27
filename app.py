@@ -1313,7 +1313,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
             # All resolution attempts failed — return stub row (never None)
             return {
                 "Name": comet_name,
-                "RA": "—", "Dec": "—", "_dec_deg": 0.0,
+                "RA": "—", "Dec": "—", "_dec_deg": 0.0, "_ra_deg": 0.0,
                 "Rise": "—", "Transit": "—", "Set": "—",
                 "Status": "—", "Constellation": "—",
                 "_rise_datetime": pd.NaT, "_set_datetime": pd.NaT, "_transit_datetime": pd.NaT,
@@ -1513,7 +1513,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
                     pass
             return {
                 "Name": asteroid_name,
-                "RA": "—", "Dec": "—", "_dec_deg": 0.0,
+                "RA": "—", "Dec": "—", "_dec_deg": 0.0, "_ra_deg": 0.0,
                 "Rise": "—", "Transit": "—", "Set": "—",
                 "Status": "—", "Constellation": "—",
                 "_rise_datetime": pd.NaT, "_set_datetime": pd.NaT, "_transit_datetime": pd.NaT,
