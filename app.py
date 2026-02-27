@@ -1767,6 +1767,13 @@ show_obs_window = st.sidebar.checkbox("Show observation window on charts", value
 obs_start_naive = start_time.replace(tzinfo=None)
 obs_end_naive = (start_time + timedelta(minutes=duration)).replace(tzinfo=None)
 
+# Night plan window: 18:00 on the anchor date → 12:00 the next day (18-hour span).
+# Anchor = yesterday when start_time is in the early-morning window (midnight–6AM),
+# otherwise today. This ensures a midnight user sees last night's full evening session.
+_night_anchor = (start_time - timedelta(days=1)).date() if start_time.hour < 6 else start_time.date()
+_night_plan_start = datetime(_night_anchor.year, _night_anchor.month, _night_anchor.day, 18, 0)
+_night_plan_end = _night_plan_start + timedelta(hours=18)  # → 12:00 next day
+
 # 5. Observational Filters
 st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
