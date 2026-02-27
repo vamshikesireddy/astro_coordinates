@@ -7,4 +7,5 @@ comets:
   "240P": "90001202"             # 240P/NEAT Fragment A
   "240P-B": "90001203"           # 240P/NEAT Fragment B
   "C/2025 K1 (ATLAS)": "2025 K1" # multi-fragment; bare C/ prefix is ambiguous in Horizons
-asteroids: {}
+asteroids:
+  "3 Juno": "3;"     # bare '3' is ambiguous; trailing semicolon forces small-body search
