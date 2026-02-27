@@ -56,3 +56,49 @@ def test_get_moon_status_boundary_illum():
 def test_get_moon_status_boundary_sep():
     assert get_moon_status(50, 30) == "⚠️ Caution"   # sep == 30 → Caution (not Avoid)
     assert get_moon_status(50, 60) == "✅ Safe"        # sep == 60 → Safe (not Caution)
+
+
+import pytz
+from datetime import datetime, timedelta
+from astropy.coordinates import EarthLocation, SkyCoord
+from astropy import units as u
+from backend.app_logic import _check_row_observability
+
+
+def _make_check_times():
+    tz = pytz.utc
+    start = datetime(2025, 6, 15, 22, 0, tzinfo=tz)
+    return [start + timedelta(minutes=m) for m in (0, 120, 240)]
+
+
+def test_check_row_observability_never_rises():
+    loc = EarthLocation(lat=80 * u.deg, lon=0 * u.deg)
+    sc  = SkyCoord(ra=0 * u.deg, dec=-80 * u.deg, frame='icrs')
+    obs, reason, ms, mst = _check_row_observability(
+        sc, "Never Rises", loc, _make_check_times(),
+        None, [], 5.0, 10, 90, set(), 0
+    )
+    assert obs is False
+    assert reason == "Never Rises"
+
+def test_check_row_observability_passes_no_az_filter():
+    """Object visible at alt >= 10 with no azimuth filter -> observable."""
+    loc = EarthLocation(lat=40 * u.deg, lon=-74 * u.deg)
+    sc = SkyCoord(ra=279.23 * u.deg, dec=38.78 * u.deg, frame='icrs')
+    tz = pytz.utc
+    times = [datetime(2025, 7, 15, 3, 0, tzinfo=tz) + timedelta(hours=i) for i in range(3)]
+    obs, reason, ms, mst = _check_row_observability(
+        sc, "Visible", loc, times, None, [], 5.0, 10, 90, set(), 0
+    )
+    assert obs is True
+
+def test_check_row_observability_does_not_raise_with_az_filter():
+    """Az filter applied -> result is bool, no exception raised."""
+    loc = EarthLocation(lat=40 * u.deg, lon=-74 * u.deg)
+    sc = SkyCoord(ra=279.23 * u.deg, dec=38.78 * u.deg, frame='icrs')
+    tz = pytz.utc
+    times = [datetime(2025, 7, 15, 3, 0, tzinfo=tz)]
+    obs, reason, _, _ = _check_row_observability(
+        sc, "Visible", loc, times, None, [], 5.0, 10, 90, {"N"}, 0
+    )
+    assert isinstance(obs, bool)

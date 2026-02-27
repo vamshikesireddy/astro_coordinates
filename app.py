@@ -64,48 +64,8 @@ CONFIG = {
 
 from backend.app_logic import (
     _AZ_OCTANTS, _AZ_LABELS, _AZ_CAPTIONS, az_in_selected,
-    get_moon_status,
+    get_moon_status, _check_row_observability,
 )
-
-
-def _check_row_observability(sc, row_status, location, check_times, moon_loc, moon_locs_chk,
-                              moon_illum, min_alt, max_alt, az_dirs, min_moon_sep):
-    """Compute observability for a single target row.
-
-    Args:
-        sc:            SkyCoord of the target.
-        row_status:    Value of the 'Status' column (string, e.g. "Never Rises").
-        location:      EarthLocation of the observer.
-        check_times:   List of 3 datetime objects (start, mid, end of window).
-        moon_loc:      Moon coordinate at start time (or None if unavailable).
-        moon_locs_chk: List of moon coordinates at each check_time (or []).
-        moon_illum:    Moon illumination 0-100 float.
-        min_alt:       Minimum altitude filter (degrees).
-        max_alt:       Maximum altitude filter (degrees).
-        az_dirs:       Set of selected compass octant labels (empty = no filter).
-        min_moon_sep:  Minimum moon separation filter (degrees).
-
-    Returns:
-        (obs: bool, reason: str, moon_sep_str: str, moon_status_str: str)
-    """
-    _seps = [moon_sep_deg(sc, ml) for ml in moon_locs_chk] if moon_locs_chk else []
-    _min_sep = min(_seps) if _seps else (moon_sep_deg(sc, moon_loc) if moon_loc else 0.0)
-    _max_sep = max(_seps) if _seps else _min_sep
-    moon_sep_str    = f"{_min_sep:.1f}°–{_max_sep:.1f}°" if moon_loc else "–"
-    moon_status_str = get_moon_status(moon_illum, _min_sep) if moon_loc else ""
-
-    if str(row_status) == "Never Rises":
-        return False, "Never Rises", moon_sep_str, moon_status_str
-
-    obs, reason = False, "Not visible during window"
-    for i_t, t_chk in enumerate(check_times):
-        aa = sc.transform_to(AltAz(obstime=Time(t_chk), location=location))
-        if min_alt <= aa.alt.degree <= max_alt and (not az_dirs or az_in_selected(aa.az.degree, az_dirs)):
-            sep_ok = (not moon_locs_chk) or (moon_sep_deg(sc, moon_locs_chk[i_t]) >= min_moon_sep)
-            if sep_ok:
-                obs, reason = True, ""
-                break
-    return obs, reason, moon_sep_str, moon_status_str
 
 
 st.set_page_config(page_title="AstroPlanner", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
