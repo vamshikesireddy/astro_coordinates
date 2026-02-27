@@ -4193,6 +4193,9 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
             df_obs = df_display[df_display['is_observable'] == True].copy()
             df_filt = df_display[df_display['is_observable'] == False].copy()
 
+            # Add peak altitude during the observation session to the observable slice
+            _add_peak_alt_session(df_obs, location, start_time, start_time + timedelta(minutes=duration))
+
             # Filter columns for display
             cols_to_remove_keywords = ['exposure', 'cadence', 'gain', 'exp', 'cad']
             actual_cols_to_drop = [
@@ -4200,8 +4203,9 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 if any(keyword in col.lower() for keyword in cols_to_remove_keywords)
                 or col in ['is_observable', 'filter_reason', 'Dec']  # drop DMS Dec; _dec_deg shows as "Dec" via column_config
             ]
-            # Drop hidden columns except _dec_deg, which is displayed as numeric "Dec" for correct sorting
-            hidden_cols = [c for c in df_display.columns if c.startswith('_') and c != '_dec_deg']
+            # Drop hidden columns except _dec_deg (shown as numeric "Dec") and _peak_alt_session (shown as "Peak Alt")
+            hidden_cols = [c for c in df_display.columns
+                           if c.startswith('_') and c not in ('_dec_deg', '_peak_alt_session')]
 
             # Helper to style and display
             def display_styled_table(df_in):
