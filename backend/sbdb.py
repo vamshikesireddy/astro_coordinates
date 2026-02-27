@@ -11,11 +11,12 @@ def sbdb_lookup(name, timeout=10):
     Returns the SPK-ID as a string (e.g. '90004812'), or None on any failure.
     """
     try:
+        # full-prec=0 suppresses extended orbital element data — only object identity needed
         resp = requests.get(SBDB_API, params={"sstr": name, "full-prec": "0"}, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
         if "object" in data and "spkid" in data["object"]:
             return str(data["object"]["spkid"])
         return None
-    except Exception:
+    except (requests.exceptions.RequestException, ValueError, KeyError):
         return None
