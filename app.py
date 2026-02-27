@@ -484,6 +484,33 @@ def _sanitize_csv_df(df: pd.DataFrame) -> pd.DataFrame:
     return df_safe
 
 
+def _add_peak_alt_session(df, location, win_start_tz, win_end_tz, n_steps=5):
+    """Add _peak_alt_session column (peak altitude during obs window) to df in-place.
+
+    Uses compute_peak_alt_in_window at n_steps sample points.
+    Falls back to None when location or coordinates are missing.
+    Returns df for chaining.
+    """
+    if location is None or df.empty or '_ra_deg' not in df.columns or '_dec_deg' not in df.columns:
+        df['_peak_alt_session'] = None
+        return df
+    peaks = []
+    for _, row in df.iterrows():
+        ra = row.get('_ra_deg')
+        dec = row.get('_dec_deg')
+        if pd.notnull(ra) and pd.notnull(dec):
+            try:
+                peaks.append(compute_peak_alt_in_window(
+                    float(ra), float(dec), location, win_start_tz, win_end_tz, n_steps=n_steps
+                ))
+            except Exception:
+                peaks.append(None)
+        else:
+            peaks.append(None)
+    df['_peak_alt_session'] = peaks
+    return df
+
+
 def build_night_plan(df_obs, sort_by="set"):
     """Build a time-sorted target list for tonight.
 
@@ -581,7 +608,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     for c in [target_col, pri_col, 'Type',
               'Rise', 'Transit', 'Set', dur_col,
               vmag_col, ra_col, dec_col, 'Constellation',
-              'Status', 'Moon Sep (°)', 'Moon Status', _link_col]:
+              'Status', 'Peak Alt (°)', 'Moon Sep (°)', 'Moon Status', _link_col]:
         if c and c in df_plan.columns and c not in display_cols:
             display_cols.append(c)
 
@@ -591,7 +618,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
         target_col: 2.8, pri_col: 1.5, 'Type': 1.2,
         'Rise': 1.6, 'Transit': 1.6, 'Set': 1.6,
         dur_col: 1.2, vmag_col: 1.0, ra_col: 1.9, dec_col: 1.7,
-        'Constellation': 1.6, 'Status': 1.7, 'Moon Sep (°)': 1.6, 'Moon Status': 1.4, _link_col: 5.0,
+        'Constellation': 1.6, 'Status': 1.7, 'Peak Alt (°)': 1.2, 'Moon Sep (°)': 1.6, 'Moon Status': 1.4, _link_col: 5.0,
     }
     col_widths = [_W.get(c, 1.5) * cm for c in display_cols]
 
@@ -1120,7 +1147,7 @@ def _render_night_plan_builder(
                         st.download_button(
                             "📥 Download Plan (CSV)",
                             data=_sanitize_csv_df(
-                                _plan_display.drop(columns=['Peak Alt (°)'], errors='ignore')
+                                _plan_display
                             ).to_csv(index=False).encode('utf-8'),
                             file_name=f"night_plan_{start_time.strftime('%Y%m%d_%H%M')}.csv",
                             mime="text/csv",
@@ -1156,6 +1183,12 @@ _MOON_SEP_COL_CONFIG = {
     "Moon Sep (°)": st.column_config.TextColumn("Moon Sep (°)"),
     "Moon Status": st.column_config.TextColumn("Moon Status"),
     "_dec_deg": st.column_config.NumberColumn("Dec", format="%+.2f°"),
+    "_peak_alt_session": st.column_config.NumberColumn(
+        "Peak Alt (session)",
+        format="%.0f°",
+        help="Highest altitude this object reaches during your observation window "
+             "(sidebar Start Time + Duration). Sampled at 5 points.",
+    ),
 }
 
 # Aliases for comets that appear under alternate designations on external pages
@@ -2174,10 +2207,11 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 )
 
             df_obs_d = df_dsos[df_dsos["is_observable"]].copy()
+            _add_peak_alt_session(df_obs_d, location, start_time, start_time + timedelta(minutes=duration))
             df_filt_d = df_dsos[~df_dsos["is_observable"]].copy()
 
             display_cols_d = ["Name", "Common Name", "Type", "Magnitude", "Constellation",
-                              "Rise", "Transit", "Set", "RA", "_dec_deg", "Status", "Moon Sep (°)", "Moon Status"]
+                              "Rise", "Transit", "Set", "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
             def display_dso_table(df_in):
                 show = [c for c in display_cols_d if c in df_in.columns]
@@ -2195,7 +2229,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 display_dso_table(_df_sorted_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 st.markdown("---")
-                with st.expander("📅 Night Plan Builder", expanded=True):
+                with st.expander("2. 📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
                         df_obs=df_obs_d,
                         start_time=start_time,
@@ -2227,7 +2261,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
 
     # --- Select Target for Trajectory ---
     st.markdown("---")
-    st.subheader("2. Select Target for Trajectory")
+    st.subheader("3. Select Target for Trajectory")
     st.caption(
         "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
         "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
@@ -2366,10 +2400,11 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                 )
 
             df_obs_p = df_planets[df_planets["is_observable"]].copy()
+            _add_peak_alt_session(df_obs_p, location, start_time, start_time + timedelta(minutes=duration))
             df_filt_p = df_planets[~df_planets["is_observable"]].copy()
 
             display_cols_p = ["Name", "Constellation", "Rise", "Transit", "Set",
-                              "RA", "_dec_deg", "Status", "Moon Sep (°)", "Moon Status"]
+                              "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
             tab_obs_p, tab_filt_p = st.tabs([
                 f"🎯 Observable ({len(df_obs_p)})",
@@ -2384,7 +2419,7 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                     st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                     st.markdown("---")
-                    with st.expander("📅 Night Plan Builder", expanded=True):
+                    with st.expander("2. 📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
                             df_obs=df_obs_p,
                             start_time=start_time,
@@ -2846,10 +2881,11 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                     )
 
                 df_obs_c = df_comets[df_comets["is_observable"]].copy()
+                _add_peak_alt_session(df_obs_c, location, start_time, start_time + timedelta(minutes=duration))
                 df_filt_c = df_comets[~df_comets["is_observable"]].copy()
 
                 display_cols_c = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                                  "RA", "_dec_deg", "Status", "Moon Sep (°)", "Moon Status"]
+                                  "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
                 def display_comet_table(df_in):
                     show = [c for c in display_cols_c if c in df_in.columns]
@@ -2888,7 +2924,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         unsafe_allow_html=True
                     )
                     st.markdown("---")
-                    with st.expander("📅 Night Plan Builder", expanded=True):
+                    with st.expander("2. 📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
                             df_obs=df_obs_c,
                             start_time=start_time,
@@ -2919,7 +2955,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
         # Select comet for trajectory
         st.markdown("---")
-        st.subheader("2. Select Comet for Trajectory")
+        st.subheader("3. Select Comet for Trajectory")
         st.caption(
             "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
             "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
@@ -3077,6 +3113,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         _df_cat["is_observable"] = _is_obs_cat
                         _df_cat["filter_reason"] = _reason_cat
                         _df_obs_cat = _df_cat[_df_cat["is_observable"]].copy()
+                        _add_peak_alt_session(_df_obs_cat, _location_cat, start_time, start_time + timedelta(minutes=duration))
                         _df_filt_cat = _df_cat[~_df_cat["is_observable"]].copy()
 
                         _tab_obs_cat, _tab_filt_cat = st.tabs([
@@ -3084,7 +3121,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                             f"\U0001f47b Unobservable ({len(_df_filt_cat)})"
                         ])
                         _show_cols_cat = ["Name", "Constellation", "Rise", "Transit", "Set",
-                                          "RA", "_dec_deg", "Status"]
+                                          "RA", "_dec_deg", "Status", "_peak_alt_session",
+                                          "Moon Sep (°)", "Moon Status"]
                         with _tab_obs_cat:
                             st.subheader("Observable Comets (Catalog)")
                             _chart_sort_cat = plot_visibility_timeline(
@@ -3099,7 +3137,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                 hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG
                             )
                             st.markdown("---")
-                            with st.expander("📅 Night Plan Builder", expanded=True):
+                            with st.expander("2. 📅 Night Plan Builder", expanded=True):
                                 _render_night_plan_builder(
                                     df_obs=_df_obs_cat,
                                     start_time=start_time,
@@ -3132,7 +3170,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
             # --- Trajectory picker for Catalog mode ---
             st.markdown("---")
-            st.subheader("2. Select Catalog Comet for Trajectory")
+            st.subheader("3. Select Catalog Comet for Trajectory")
             st.caption(
                 "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
                 "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
@@ -3580,10 +3618,11 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                 )
 
             df_obs_a = df_asteroids[df_asteroids["is_observable"]].copy()
+            _add_peak_alt_session(df_obs_a, location, start_time, start_time + timedelta(minutes=duration))
             df_filt_a = df_asteroids[~df_asteroids["is_observable"]].copy()
 
             display_cols_a = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
-                              "RA", "_dec_deg", "Status", "Moon Sep (°)", "Moon Status"]
+                              "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
             def display_asteroid_table(df_in):
                 show = [c for c in display_cols_a if c in df_in.columns]
@@ -3622,7 +3661,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                     unsafe_allow_html=True
                 )
                 st.markdown("---")
-                with st.expander("📅 Night Plan Builder", expanded=True):
+                with st.expander("2. 📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
                         df_obs=df_obs_a,
                         start_time=start_time,
@@ -3653,7 +3692,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
     # Select asteroid for trajectory
     st.markdown("---")
-    st.subheader("2. Select Asteroid for Trajectory")
+    st.subheader("3. Select Asteroid for Trajectory")
     st.caption(
         "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
         "Uses your **sidebar settings** (location, session start time, duration, altitude window, "
@@ -4154,6 +4193,9 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
             df_obs = df_display[df_display['is_observable'] == True].copy()
             df_filt = df_display[df_display['is_observable'] == False].copy()
 
+            # Add peak altitude during the observation session to the observable slice
+            _add_peak_alt_session(df_obs, location, start_time, start_time + timedelta(minutes=duration))
+
             # Filter columns for display
             cols_to_remove_keywords = ['exposure', 'cadence', 'gain', 'exp', 'cad']
             actual_cols_to_drop = [
@@ -4161,8 +4203,9 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 if any(keyword in col.lower() for keyword in cols_to_remove_keywords)
                 or col in ['is_observable', 'filter_reason', 'Dec']  # drop DMS Dec; _dec_deg shows as "Dec" via column_config
             ]
-            # Drop hidden columns except _dec_deg, which is displayed as numeric "Dec" for correct sorting
-            hidden_cols = [c for c in df_display.columns if c.startswith('_') and c != '_dec_deg']
+            # Drop hidden columns except _dec_deg (shown as numeric "Dec") and _peak_alt_session (shown as "Peak Alt")
+            hidden_cols = [c for c in df_display.columns
+                           if c.startswith('_') and c not in ('_dec_deg', '_peak_alt_session')]
 
             # Helper to style and display
             def display_styled_table(df_in):
@@ -4249,7 +4292,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
 
             # ── Night Plan Builder ─────────────────────────────────────────────
             st.markdown("---")
-            with st.expander("📅 Night Plan Builder", expanded=True):
+            with st.expander("2. 📅 Night Plan Builder", expanded=True):
                 _render_night_plan_builder(
                     df_obs=df_obs,
                     start_time=start_time,
@@ -4269,7 +4312,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 )
 
             st.markdown("---")
-            st.subheader("2. Select Target for Trajectory")
+            st.subheader("3. Select Target for Trajectory")
             st.caption(
                 "Pick any target to see its full altitude/azimuth trajectory across your observation window. "
                 "Uses your **sidebar location and session start time** — adjust those first if needed."
@@ -4359,7 +4402,7 @@ elif target_mode == "Manual RA/Dec":
 # ---------------------------
 # MAIN: Calculation & Output
 # ---------------------------
-st.header("3. Trajectory Results")
+st.header("4. Trajectory Results")
 
 if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved):
     if lat is None or lon is None:

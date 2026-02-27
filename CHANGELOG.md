@@ -4,6 +4,41 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — UI polish: step numbering, Peak Alt exports, Peak Alt (session) overview column
+
+**Branch:** `feature/peak-alt-session-column` (10 commits)
+**Tests:** 66 pass
+
+### Changes
+
+**A. Consistent in-app step numbering**
+- Night Plan Builder expander was unnumbered, causing confusion about where it fit in the flow
+- Renumbered all in-app steps to a clear 1→2→3→4 sequence:
+  - `1. Choose Target` — unchanged (batch table + Gantt is step 1 output)
+  - `2. 📅 Night Plan Builder` — was unlabeled
+  - `3. Select X for Trajectory` — was `2.`
+  - `4. Trajectory Results` — was `3.`
+- README step 5 updated: `"5. Calculate a Trajectory"` → `"5. Explore a Trajectory"`; body references updated from step 2/3 to step 3/4
+
+**B. Peak Alt (°) included in CSV and PDF exports**
+- Bug: Night Plan Builder showed `Peak Alt (°)` on-screen but stripped it from CSV (`.drop(columns=['Peak Alt (°)'])`) and omitted it from the PDF column list
+- Fix: removed the drop from the CSV download button; added `'Peak Alt (°)'` to `generate_plan_pdf` column order and `_W` width dict (1.2 cm)
+
+**C. Peak Alt (session) column in all section overview tables**
+- New column `"Peak Alt (session)"` added to the overview table (below Gantt chart) in all 5 sections
+- Shows the highest altitude the object reaches during the user's chosen observation window (sidebar Start Time + Duration)
+- Uses existing `compute_peak_alt_in_window()` at 5 sample points — fast enough for observable subsets
+- Column header makes session dependency explicit; tooltip explains the 5-point sampling
+- New module-level helper `_add_peak_alt_session(df, location, win_start_tz, win_end_tz, n_steps=5)` — thin wrapper, falls back to None on missing location/coordinates
+- Config entry added to `_MOON_SEP_COL_CONFIG` so formatting applies to all 5 sections automatically
+- Cosmic Cataclysm: updated `hidden_cols` to except `_peak_alt_session` alongside `_dec_deg`
+- Column position: between `Status` and `Moon Sep (°)` in all sections
+
+### Rule
+When adding a column that uses `_`-prefix convention in Cosmic Cataclysm, always add it to the `hidden_cols` exception at `if c.startswith('_') and c not in (...)`.
+
+---
+
 ## 2026-03-01 — Night Plan altitude-aware filter, Peak Alt column, and Parameters summary
 
 **Commits:** `f2a07dc` → `3ae5129` (9 commits)
