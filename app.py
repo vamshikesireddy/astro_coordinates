@@ -758,6 +758,7 @@ def _render_night_plan_builder(
     type_col=None, disc_col=None, link_col=None,
     csv_label="All Targets (CSV)", csv_data=None,
     csv_filename="targets.csv", section_key="",
+    duration_minutes=None,
 ):
     """Render a Night Plan Builder UI inside an already-open st.expander.
 
@@ -877,20 +878,30 @@ def _render_night_plan_builder(
     # sidebar times (e.g. 14:30) aren't silently clamped to 18:00.
     _slider_min = min(_st_rounded, night_plan_start)
     _slider_default_start = min(_st_rounded, night_plan_end - timedelta(minutes=30))
+    # Default right handle: start + imaging duration (from sidebar) capped at
+    # night_plan_end, so the slider pre-fills the user's stated session window.
+    if duration_minutes:
+        _slider_default_end = min(
+            _st_naive.replace(second=0, microsecond=0) + timedelta(minutes=duration_minutes),
+            night_plan_end,
+        )
+    else:
+        _slider_default_end = night_plan_end
 
     # Sync slider to sidebar: when the sidebar time changes, reset the stored
-    # slider value so the left handle tracks the new start time.
+    # slider value so the handles track the new start/duration.
+    # Always manage state via session_state — never pass value= to st.slider
+    # alongside a manual st.session_state assignment (causes Streamlit warning).
     _ss_key = f"{section_key}_win_range"
     _last_key = f"{section_key}_last_start"
     if st.session_state.get(_last_key) != _st_rounded:
         st.session_state[_last_key] = _st_rounded
-        st.session_state[_ss_key] = (_slider_default_start, night_plan_end)
+        st.session_state[_ss_key] = (_slider_default_start, _slider_default_end)
 
     _win_range = st.slider(
         "Session window",
         min_value=_slider_min,
         max_value=night_plan_end,
-        value=(_slider_default_start, night_plan_end),
         step=timedelta(minutes=30),
         format="MMM DD HH:mm",
         key=_ss_key,
@@ -2040,6 +2051,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                         csv_data=df_dsos,
                         csv_filename=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
                         section_key=f"dso_{category.lower().replace(' ', '_')}",
+                        duration_minutes=duration,
                     )
 
             with tab_filt_d:
@@ -2221,6 +2233,7 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                             csv_label="📊 All Planets (CSV)",
                             csv_filename="planets_visibility.csv",
                             section_key="planet",
+                            duration_minutes=duration,
                         )
                 else:
                     _az_order = {d: i for i, d in enumerate(_AZ_LABELS)}
@@ -2721,6 +2734,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                             csv_label="📊 All Comets (CSV)",
                             csv_filename="comets_visibility.csv",
                             section_key="comet_mylist",
+                            duration_minutes=duration,
                         )
 
                 with tab_filt_c:
@@ -2925,6 +2939,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                     csv_data=_df_cat,
                                     csv_filename="catalog_comets_visibility.csv",
                                     section_key="comet_catalog",
+                                    duration_minutes=duration,
                                 )
                         with _tab_filt_cat:
                             st.caption("Comets not meeting your filters within the observation window.")
@@ -3420,6 +3435,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                         csv_label="📊 All Asteroids (CSV)",
                         csv_filename="asteroids_visibility.csv",
                         section_key="asteroid",
+                        duration_minutes=duration,
                     )
 
             with tab_filt_a:
@@ -4042,6 +4058,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                     csv_data=df_alerts,
                     csv_filename="unistellar_targets.csv",
                     section_key="cosmic",
+                    duration_minutes=duration,
                 )
 
             st.markdown("---")
