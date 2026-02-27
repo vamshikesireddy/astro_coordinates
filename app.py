@@ -2497,6 +2497,13 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                 st.warning(f"'{new_comet_direct}' is already in the list.")
 
                     st.markdown("---")
+                    if st.button("🔄 Refresh JPL Data", key="jpl_refresh_comets",
+                                 help="Clears cached JPL results and reloads overrides — use after editing jpl_id_overrides.yaml or jpl_id_cache.json"):
+                        _load_jpl_overrides.clear()
+                        get_comet_summary.clear()
+                        get_asteroid_summary.clear()
+                        st.success("JPL cache cleared — reloading...")
+                        st.rerun()
                     # JPL Resolution Failures
                     _comet_failures_df = st.session_state.get("_comet_jpl_failures", None)
                     if _comet_failures_df is not None and not _comet_failures_df.empty:
@@ -3190,6 +3197,13 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                             st.warning(f"'{new_asteroid_direct}' is already in the list.")
 
                 st.markdown("---")
+                if st.button("🔄 Refresh JPL Data", key="jpl_refresh_asteroids",
+                             help="Clears cached JPL results and reloads overrides — use after editing jpl_id_overrides.yaml or jpl_id_cache.json"):
+                    _load_jpl_overrides.clear()
+                    get_comet_summary.clear()
+                    get_asteroid_summary.clear()
+                    st.success("JPL cache cleared — reloading...")
+                    st.rerun()
                 # JPL Resolution Failures
                 _asteroid_failures_df = st.session_state.get("_asteroid_jpl_failures", None)
                 if _asteroid_failures_df is not None and not _asteroid_failures_df.empty:
