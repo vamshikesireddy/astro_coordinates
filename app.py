@@ -660,6 +660,8 @@ def _apply_night_plan_filters(
     disc_col, disc_days,
     win_start_dt, win_end_dt,
     sel_moon, all_moon_statuses,
+    location=None,
+    min_alt=0,
 ):
     """Apply all night plan filters to df and return the filtered copy.
 
@@ -688,6 +690,12 @@ def _apply_night_plan_filters(
         Selected Moon Status labels and the full list of statuses.
         Filtering is skipped when ``sel_moon`` is ``None`` or equals
         ``all_moon_statuses``.
+    location : astropy EarthLocation | None
+        Observer location used for altitude check inside the window.
+        When ``None``, the altitude check is skipped (horizon-overlap only).
+    min_alt : float
+        Minimum peak altitude (degrees) the target must reach inside the
+        observation window.  Ignored when ``location`` is ``None``.
     """
     out = df.copy()
 
@@ -727,22 +735,50 @@ def _apply_night_plan_filters(
     # Filter: observation window — win_start_dt and win_end_dt are tz-aware datetimes
     # passed directly from the caller (no integer-hour arithmetic needed here).
 
-    def _in_obs_window(row):
-        status = str(row.get('Status', ''))
-        if 'Always Up' in status:
-            return True
-        r = row.get('_rise_datetime')
-        s = row.get('_set_datetime')
-        if pd.isnull(r) or pd.isnull(s):
-            return True  # keep if timing unknown
-        try:
-            # Visible during window if rises before window ends AND sets after window starts
-            return r < win_end_dt and s > win_start_dt
-        except (TypeError, ValueError):
-            return True
-
     if '_rise_datetime' in out.columns and '_set_datetime' in out.columns:
-        out = out[out.apply(_in_obs_window, axis=1)]
+        _keep = []
+        _peak_alts = []
+        for _, _row in out.iterrows():
+            _status = str(_row.get('Status', ''))
+            if 'Always Up' in _status:
+                _keep.append(True)
+                _peak_alts.append(90.0)
+                continue
+            _r = _row.get('_rise_datetime')
+            _s = _row.get('_set_datetime')
+            if pd.isnull(_r) or pd.isnull(_s):
+                _keep.append(True)
+                _peak_alts.append(None)
+                continue
+            # Horizon-overlap check (fast, no computation)
+            try:
+                _horizon_ok = _r < win_end_dt and _s > win_start_dt
+            except (TypeError, ValueError):
+                _keep.append(True)
+                _peak_alts.append(None)
+                continue
+            if not _horizon_ok:
+                _keep.append(False)
+                _peak_alts.append(None)
+                continue
+            # Altitude check across window (only for horizon-passing rows)
+            _ra  = _row.get('_ra_deg')
+            _dec = _row.get('_dec_deg')
+            if (location is not None
+                    and _ra is not None and pd.notnull(_ra)
+                    and _dec is not None and pd.notnull(_dec)):
+                _peak = compute_peak_alt_in_window(
+                    float(_ra), float(_dec), location, win_start_dt, win_end_dt
+                )
+                _keep.append(_peak >= min_alt)
+                _peak_alts.append(_peak)
+            else:
+                # No location or coordinates — fall back to horizon-only check
+                _keep.append(True)
+                _peak_alts.append(None)
+
+        out['_peak_alt_window'] = _peak_alts
+        out = out[_keep].copy()
 
     # Filter: Moon Status
     if (sel_moon is not None and 'Moon Status' in out.columns
