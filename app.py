@@ -657,7 +657,7 @@ def _apply_night_plan_filters(
     vmag_col, vmag_range,
     type_col, sel_types,
     disc_col, disc_days,
-    local_tz, start_time, win_start_h, win_end_h,
+    win_start_dt, win_end_dt,
     sel_moon, all_moon_statuses,
 ):
     """Apply all night plan filters to df and return the filtered copy.
@@ -680,12 +680,9 @@ def _apply_night_plan_filters(
     disc_col, disc_days : str | None, int | None
         Discovery-date column name and recency threshold in days.
         Pass ``None`` for either (or ``disc_days=365``) to skip.
-    local_tz : tzinfo
-        Local timezone used to localise the observation window datetimes.
-    start_time : datetime
-        Tonight's start time (date component used to build window start).
-    win_start_h, win_end_h : int
-        Hour (24-h) for window start (tonight) and end (next morning).
+    win_start_dt, win_end_dt : datetime (tz-aware)
+        Observation window start and end as fully-specified tz-aware datetimes.
+        Replaces the old integer-hour + timedelta(days=1) approach.
     sel_moon, all_moon_statuses : list | None, list
         Selected Moon Status labels and the full list of statuses.
         Filtering is skipped when ``sel_moon`` is ``None`` or equals
@@ -726,14 +723,8 @@ def _apply_night_plan_filters(
         )
         out = out[_disc_parsed.isna() | (_disc_parsed >= _disc_cutoff)]
 
-    # Filter: observation window — start is tonight, end is always next morning
-    _win_start_dt = local_tz.localize(
-        datetime(start_time.year, start_time.month, start_time.day, win_start_h, 0)
-    )
-    _win_end_dt = local_tz.localize(
-        datetime(start_time.year, start_time.month, start_time.day, win_end_h, 0)
-        + timedelta(days=1)
-    )
+    # Filter: observation window — win_start_dt and win_end_dt are tz-aware datetimes
+    # passed directly from the caller (no integer-hour arithmetic needed here).
 
     def _in_obs_window(row):
         status = str(row.get('Status', ''))
@@ -745,7 +736,7 @@ def _apply_night_plan_filters(
             return True  # keep if timing unknown
         try:
             # Visible during window if rises before window ends AND sets after window starts
-            return r < _win_end_dt and s > _win_start_dt
+            return r < win_end_dt and s > win_start_dt
         except (TypeError, ValueError):
             return True
 
