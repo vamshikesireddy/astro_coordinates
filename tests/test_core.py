@@ -93,3 +93,55 @@ def test_calculate_planning_info_set_after_rise():
     result = calculate_planning_info(sc, loc, start)
     if result["Status"] == "Visible":
         assert result["_set_datetime"] > result["_rise_datetime"]
+
+
+# ── compute_peak_alt_in_window ────────────────────────────────────────────────
+
+def test_compute_peak_alt_in_window_returns_valid_range():
+    """Peak altitude is always a float in [-90, 90]."""
+    from datetime import datetime
+    import pytz
+    from astropy.coordinates import EarthLocation
+    import astropy.units as u
+    from backend.core import compute_peak_alt_in_window
+
+    loc = EarthLocation(lat=40.7 * u.deg, lon=-74.0 * u.deg)
+    tz  = pytz.timezone('America/New_York')
+    win_start = tz.localize(datetime(2026, 7, 1, 21, 0))
+    win_end   = tz.localize(datetime(2026, 7, 1, 23, 0))
+    peak = compute_peak_alt_in_window(279.23, 38.78, loc, win_start, win_end)
+    assert isinstance(peak, float)
+    assert -90.0 <= peak <= 90.0
+
+
+def test_compute_peak_alt_in_window_high_object():
+    """Object transiting near zenith returns altitude well above 30 degrees."""
+    from datetime import datetime
+    import pytz
+    from astropy.coordinates import EarthLocation
+    import astropy.units as u
+    from backend.core import compute_peak_alt_in_window
+
+    loc = EarthLocation(lat=40.7 * u.deg, lon=-74.0 * u.deg)
+    tz  = pytz.timezone('America/New_York')
+    win_start = tz.localize(datetime(2026, 7, 1, 21, 0))
+    win_end   = tz.localize(datetime(2026, 7, 1, 23, 0))
+    peak = compute_peak_alt_in_window(279.23, 38.78, loc, win_start, win_end)
+    assert peak > 30.0, f"Vega near transit should exceed 30 degrees, got {peak:.1f}"
+
+
+def test_compute_peak_alt_in_window_n_steps_minimum():
+    """n_steps=2 (minimum) still returns a valid float."""
+    from datetime import datetime
+    import pytz
+    from astropy.coordinates import EarthLocation
+    import astropy.units as u
+    from backend.core import compute_peak_alt_in_window
+
+    loc = EarthLocation(lat=40.7 * u.deg, lon=-74.0 * u.deg)
+    tz  = pytz.timezone('America/New_York')
+    win_start = tz.localize(datetime(2026, 7, 1, 21, 0))
+    win_end   = tz.localize(datetime(2026, 7, 1, 23, 0))
+    peak = compute_peak_alt_in_window(279.23, 38.78, loc, win_start, win_end, n_steps=2)
+    assert isinstance(peak, float)
+    assert -90.0 <= peak <= 90.0

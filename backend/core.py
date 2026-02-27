@@ -167,3 +167,44 @@ def calculate_planning_info(sky_coord, location, start_time):
         "_set_datetime": None,
         "_transit_datetime": transit_time
     }
+
+
+def compute_peak_alt_in_window(ra_deg, dec_deg, location, win_start_dt, win_end_dt, n_steps=None):
+    """Return the peak altitude (degrees) of an object during an observation window.
+
+    Samples altitude at uniform intervals across the window. n_steps defaults
+    to one sample per 30 minutes, minimum 2.
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : float
+        ICRS coordinates in decimal degrees.
+    location : EarthLocation
+    win_start_dt, win_end_dt : datetime (tz-aware)
+        Start and end of the observation window.
+    n_steps : int | None
+        Number of altitude samples. Auto-computed from window duration if None.
+
+    Returns
+    -------
+    float
+        Peak altitude in degrees. Can be negative if always below horizon.
+    """
+    sc = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+    window_secs = (win_end_dt - win_start_dt).total_seconds()
+    if n_steps is None:
+        n_steps = max(2, int(window_secs / 1800) + 1)  # one per 30 min, min 2
+
+    peak = -90.0
+    for i in range(n_steps):
+        frac = i / max(n_steps - 1, 1)
+        t_sample = win_start_dt + timedelta(seconds=frac * window_secs)
+        t_utc = Time(
+            t_sample.astimezone(pytz.utc).replace(tzinfo=None),
+            scale='utc',
+        )
+        aa = sc.transform_to(AltAz(obstime=t_utc, location=location))
+        if aa.alt.deg > peak:
+            peak = aa.alt.deg
+
+    return float(peak)
