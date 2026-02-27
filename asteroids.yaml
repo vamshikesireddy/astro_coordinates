@@ -9,17 +9,17 @@ asteroids:
 - 704 Interamnia
 - 1796 Riga
 - 2033 Basilea
-- 2001 FD58
+- 162882 (2001 FD58)
 - 3200 Phaethon
 - 3260 Vizbor
 - 99942 Apophis
 - 101955 Bennu
-- 2001 SN263
+- 153591 (2001 SN263)
 cancelled: []
 priorities: {}
 unistellar_priority:
 - 1796 Riga
-- 2001 FD58
+- 162882 (2001 FD58)
 - 433 Eros
 - 2033 Basilea
 - 3260 Vizbor
