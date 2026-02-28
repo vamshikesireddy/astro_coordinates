@@ -4,6 +4,36 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — Hotfix: Night Plan Builder session window slider crashes on Streamlit Cloud
+
+**Commit:** `31812df`
+**Branch:** `main` (hotfix — pushed directly)
+**Tests:** 96 pass
+
+### Bug
+`TypeError: 'datetime.datetime' object is not subscriptable` at `app.py:673` — crashed all sections (DSO, Comet, etc.) whenever the Night Plan Builder was rendered on Streamlit Cloud.
+
+### Root cause
+The slider sync guard:
+```python
+if (st.session_state.get(_last_key) != _st_rounded
+        or st.session_state.get(_last_dur_key) != duration_minutes):
+    st.session_state[_ss_key] = (_slider_default_start, _slider_default_end)
+```
+…only fired when the sidebar start-time or duration changed. It never checked whether `_ss_key` itself held a valid tuple. On Streamlit Cloud, WebSocket sessions can persist across deploys. A user whose session carried over a stale scalar `datetime` in `_ss_key` (from a version mismatch or prior state) would never trigger the reset — so the slider rendered as single-handle (scalar mode) instead of a range, then `_win_range[0]` crashed.
+
+### Fix
+Added a third condition to the guard:
+```python
+or not isinstance(st.session_state.get(_ss_key), (tuple, list))
+```
+Any non-tuple state is now corrected to a `(_start, _end)` tuple before the slider renders, regardless of whether start-time or duration changed.
+
+### Rule
+When a Streamlit widget's session state key is managed manually, the reset guard must check **both** the triggering values AND the type/shape of the stored value. A stale or wrong-type value in session state silently corrupts widget mode (scalar vs range) without raising an error until the value is used downstream.
+
+---
+
 ## 2026-03-01 — Docs: How to Use rewrite — steps now match in-app numbering
 
 **Commits:** `ddc6d54`, `b46a1d3`
