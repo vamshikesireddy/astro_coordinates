@@ -508,7 +508,14 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     tbl.setStyle(ts)
 
     elems.append(tbl)
-    elems.append(Spacer(1, 0.5 * cm))
+    elems.append(Spacer(1, 0.3 * cm))
+    note_s = ParagraphStyle('note', parent=styles['Normal'], fontSize=7,
+                             textColor=rl_colors.HexColor('#1565C0'))
+    elems.append(Paragraph(
+        "💡 Target names in blue are clickable deep links — tap to open directly in the Unistellar app.",
+        note_s,
+    ))
+    elems.append(Spacer(1, 0.2 * cm))
     footer_s = ParagraphStyle('f', parent=styles['Normal'], fontSize=7,
                                textColor=rl_colors.grey)
     elems.append(Paragraph(
@@ -561,8 +568,12 @@ def _df_to_cosmic_xlsx(df, name_col, link_col):
     for row_pos, (_, row) in enumerate(df_out.iterrows(), start=2):
         ws.append([str(v) if v is not None else '' for v in row.tolist()])
         if name_idx and row_pos in url_lookup:
+            url = url_lookup[row_pos]
+            # Use =HYPERLINK() formula so Google Sheets and Excel both treat it
+            # as a clickable link; cell.hyperlink only works in desktop Excel.
+            name_val = str(row.get(name_col, '') or '').replace('"', '""')
             cell = ws.cell(row=row_pos, column=name_idx)
-            cell.hyperlink = url_lookup[row_pos]
+            cell.value = f'=HYPERLINK("{url}","{name_val}")'
             cell.font = Font(color='0563C1', underline='single')
 
     buf = _io.BytesIO()
