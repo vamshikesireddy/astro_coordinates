@@ -1549,7 +1549,7 @@ with st.expander("ℹ️ How to Use"):
     *   **Session window** — Drag the range slider to set your imaging start and end. The slider spans the full night (18:00 tonight → 12:00 next morning); both handles show date and time (e.g. `Feb 27 22:00`). Step is 30 minutes.
     *   **Sort by Set Time or Transit Time** — controls plan order only.
     *   **Filter** by Moon Status, priority level, magnitude, event type, and discovery recency.
-    *   **Export** as CSV or PDF (PDF is priority-colour-coded; Cosmic Cataclysm PDFs include `unistellar://` deeplinks).
+    *   **Export** as XLSX or PDF for Cosmic Cataclysm targets — the target name is a clickable link to the Unistellar app (tap on phone/iPad). Other sections export as CSV.
 
     ### 3. Select Target for Trajectory
     Below the Observable/Unobservable tabs, pick any individual target from the dropdown to drill into its full altitude/azimuth trajectory for your session window.
@@ -4085,7 +4085,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
 
                 _chart_sort_cosmic = plot_visibility_timeline(df_obs, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Order By Discovery Date")
 
-                st.info("ℹ️ **Note:** The 'DeepLink' column is for Unistellar telescopes only. For other equipment, please use the RA/Dec coordinates.")
+                st.info("ℹ️ **Note:** The **🔭 Open** button opens the Unistellar app on your phone or tablet. On a laptop it opens a new browser tab (harmless). For other equipment use the RA/Dec coordinates. Excel exports have the target name as a clickable hyperlink.")
 
                 _df_sorted_cosmic = _sort_df_like_chart(df_obs, _chart_sort_cosmic) if _chart_sort_cosmic else df_obs
                 display_styled_table(_df_sorted_cosmic)
