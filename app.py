@@ -4111,7 +4111,7 @@ elif target_mode == "Cosmic Cataclysm":
 
 elif target_mode == "Manual RA/Dec":
     st.markdown("---")
-    st.subheader("3. Enter Coordinates for Trajectory")
+    st.subheader("2. Enter Coordinates for Trajectory")
     col1, col2, col3 = st.columns(3)
     with col1:
         name = st.text_input("Object Name (optional)", value="Custom Target", help="Provide a name for your custom target.")
@@ -4132,7 +4132,7 @@ elif target_mode == "Manual RA/Dec":
 # ---------------------------
 # MAIN: Calculation & Output
 # ---------------------------
-st.header("4. Trajectory Results")
+st.header("3. Trajectory Results" if target_mode == "Manual RA/Dec" else "4. Trajectory Results")
 
 _no_location = lat is None or lon is None or (lat == 0.0 and lon == 0.0)
 if _no_location:
