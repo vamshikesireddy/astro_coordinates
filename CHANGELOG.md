@@ -23,17 +23,19 @@ holds a non-tuple. Mirrors the win_range slider fix (`31812df`). Also reuses
 Rule: Any range slider managed with `key=` must have an isinstance guard clearing
 non-tuple state before the `st.slider()` call.
 
-### Issue B — `_cat_df` not invalidated on location change
+### Issue B — `_cat_df` not invalidated on location or time change
 
 The Explore Catalog comet DataFrame was cached in session state without
-tracking which lat/lon it was calculated at. Moving to a new location showed
-stale rise/set times from the previous location.
+tracking which lat/lon/start_time it was calculated at. Moving to a new location
+or changing the observation date showed stale rise/set times from the prior values.
 
-Fix: store `_cat_df_lat`/`_cat_df_lon` alongside `_cat_df`; compare against
-current sidebar values on each render; clear + show re-calculate prompt if different.
+Fix: store `_cat_df_lat`/`_cat_df_lon`/`_cat_df_start` alongside `_cat_df`; compare
+against current sidebar values on each render; clear + show re-calculate prompt
+if any differ. `start_time.isoformat()` is used for the time comparison to avoid
+timezone-representation mismatch on datetime equality.
 
-Rule: Any session-state DataFrame that depends on lat/lon must store and validate
-its source coordinates.
+Rule: Any session-state DataFrame that depends on lat/lon or start_time must store
+and validate all source inputs.
 
 ### Issue C — lat=0.0 guard inconsistency
 
