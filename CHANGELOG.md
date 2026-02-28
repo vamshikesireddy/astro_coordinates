@@ -4,6 +4,57 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — Feature: Exoplanet Transit Section — Full Build
+
+**Branch:** `feature/exoplanet-transits` (in progress — kept open for future updates and live testing)
+**Commits:** `5bce0ac` → `64c820f` (9 new commits on top of rebased main)
+**Tests:** 127 pass (was 118; +9 new tests across 2 new test files)
+
+### What was built
+
+#### Section 1 — Data Layer
+- `backend/swarthmore.py`: Transit window fetching from Swarthmore College transit finder. Parses HTML table → DataFrame. Caller passes `days=10` (default stays 7).
+- `get_exoplanet_summary()`: Now fetches 10-day window. Computes AltAz at ingress, mid-transit, and egress using Astropy `AltAz(obstime=Time(dt), location=location)`. Adds 6 columns (`Ingress Alt`, `Ingress Dir`, `Mid Alt`, `Mid Dir`, `Egress Alt`, `Egress Dir`) + combined `Arc` column (`"38°SE → 52°S → 44°SW"`). AltAz skipped (columns blank) if `location` is None.
+- `_compute_altaz(sc, dt)` helper: closure over `obs_location`, computes altitude (int degrees) and compass direction via `azimuth_to_compass()`.
+
+#### Section 2 — Unistellar Priority Sync Pipeline
+- `scrape_unistellar_exoplanets()` return type changed: `list[str]` → `{"active": [...], "priority": [...]}`. Priority = planet names appearing as `<h2>`/`<h3>` headings on the Unistellar missions page (heading = featured campaign).
+- New script `scripts/check_unistellar_exoplanet_priorities.py`: scrapes → diffs against `exoplanets.yaml` → detects 4 change types: `ADDED`, `REMOVED`, `PRIORITY_ADDED`, `PRIORITY_REMOVED` → writes `_exoplanet_priority_changes.json`.
+- New script `scripts/open_exoplanet_priority_issues.py`: reads changes JSON → creates GitHub Issues with `priority-added` (green) or `priority-removed` (red) labels; dedup guard skips if open issue already exists.
+- New workflow `.github/workflows/check-exoplanet-priorities.yml`: daily at **08:00 UTC** (more frequent than comet/asteroid twice-weekly).
+- `.gitignore`: added `_exoplanet_priority_changes.json`, `exoplanet_pending_requests.txt`.
+
+#### Section 3 — Admin Panel + UI Fixes
+- **5 bug fixes in `render_exoplanet_section()`**: `_night_plan_start`/`_night_plan_end` anchor, `location=`, `min_alt=`, `min_moon_sep=`, `az_dirs=`, `duration_minutes=` all passed to `_render_night_plan_builder`; `_add_peak_alt_session()` call added; step numbering 1→2→3→4.
+- **Admin panel**: `load_exoplanets_config` (`@st.cache_data`), `save_exoplanets_config` (clears cache + writes YAML + GitHub push). Runtime pending detection via `_exo_pending_checked` session state guard + `diff_exoplanet_priorities()`. Accept/Reject buttons write to `exoplanet_pending_requests.txt`.
+- `requirements.txt`: `scrapling[fetchers]` → `scrapling[fetchers]>=0.4.1` (2× faster Cloudflare, improved stealth mode).
+
+### New test files
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `tests/test_scrape_exoplanets.py` | 4 | New dict return shape, priority from headings, failure case, priority ⊆ active |
+| `tests/test_exoplanet_priorities.py` | 5 | ADDED / REMOVED / PRIORITY_ADDED / PRIORITY_REMOVED / no-change cases |
+
+### New files
+| File | Purpose |
+|------|---------|
+| `backend/swarthmore.py` | Swarthmore transit window fetcher |
+| `backend/scrape.py` | `scrape_unistellar_exoplanets()` updated |
+| `scripts/check_unistellar_exoplanet_priorities.py` | Scrape → diff → JSON |
+| `scripts/open_exoplanet_priority_issues.py` | JSON → GitHub Issues |
+| `.github/workflows/check-exoplanet-priorities.yml` | Daily 08:00 UTC sync |
+| `exoplanets.yaml` | Config skeleton (`cancelled: []`, `priorities: {}`) |
+
+### Rule
+When adding a new Unistellar sync pipeline (scrape → diff → GH Actions → admin panel), the pattern is:
+1. `scrape_*()` returns `{"active": [...], "priority": [...]}` from `backend/scrape.py`
+2. `scripts/check_*_priorities.py` diffs against YAML → writes `_*_changes.json` (gitignored)
+3. `scripts/open_*_issues.py` creates GitHub Issues from the JSON
+4. GH Actions workflow runs on schedule; `exoplanets` = daily, others = twice-weekly
+5. Runtime admin panel: session state guard + `diff_*_priorities()` + Accept/Reject buttons
+
+---
+
 ## 2026-03-01 — Docs: How to Use rewrite — steps now match in-app numbering
 
 **Commits:** `ddc6d54`, `b46a1d3`
