@@ -69,6 +69,10 @@ from backend.app_logic import (
 
 st.set_page_config(page_title="AstroPlanner", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
+def _location_needed():
+    """Consistent placeholder shown in every section that requires a location."""
+    st.info("📍 Set your location in the sidebar to see results here.")
+
 @st.cache_data(ttl=3600, show_spinner="Calculating planetary visibility...")
 def get_planet_summary(lat, lon, start_time):
     planet_map = {
@@ -1855,7 +1859,10 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
 
     # --- Batch Visibility Table ---
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-        st.info("Set location in sidebar to see batch visibility for all objects in this catalog.")
+        _location_needed()
+        st.markdown("---")
+        with st.expander("2\\. 📅 Night Plan Builder", expanded=False):
+            _location_needed()
     elif dso_list:
         dso_tuple = tuple(
             (d["name"], float(d["ra"]), float(d["dec"]),
@@ -1935,7 +1942,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 display_dso_table(_df_sorted_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 st.markdown("---")
-                with st.expander("2. 📅 Night Plan Builder", expanded=True):
+                with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
                         df_obs=df_obs_d,
                         start_time=start_time,
@@ -2059,8 +2066,11 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
         "Pluto": "999"
     }
 
-    if lat is None or lon is None:
-        st.info("Set location in sidebar to see visibility summary for all planets.")
+    if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+        _location_needed()
+        st.markdown("---")
+        with st.expander("2\\. 📅 Night Plan Builder", expanded=False):
+            _location_needed()
     else:
         df_planets = get_planet_summary(lat, lon, start_time)
         if not df_planets.empty:
@@ -2125,7 +2135,7 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                     st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                     st.markdown("---")
-                    with st.expander("2. 📅 Night Plan Builder", expanded=True):
+                    with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
                             df_obs=df_obs_p,
                             start_time=start_time,
@@ -2150,6 +2160,8 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                     show_filt_p = [c for c in ["Name", "filter_reason", "Rise", "Transit", "Set", "RA", "_dec_deg", "Status"] if c in df_filt_p.columns]
                     st.dataframe(df_filt_p[show_filt_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
 
+    st.markdown("---")
+    st.subheader("3. Select Planet for Trajectory")
     selected_target = st.selectbox("Select a Planet", list(planet_map.keys()))
 
     # Use JPL Horizons IDs to avoid ambiguity (e.g. Mercury vs Mercury Barycenter)
@@ -2501,7 +2513,10 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
         # Batch visibility table
         if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-            st.info("Set location in sidebar to see visibility summary for all comets.")
+            _location_needed()
+            st.markdown("---")
+            with st.expander("2\\. 📅 Night Plan Builder", expanded=False):
+                _location_needed()
         elif active_comets:
             df_comets = get_comet_summary(lat, lon, start_time, tuple(active_comets))
 
@@ -2630,7 +2645,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         unsafe_allow_html=True
                     )
                     st.markdown("---")
-                    with st.expander("2. 📅 Night Plan Builder", expanded=True):
+                    with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
                             df_obs=df_obs_c,
                             start_time=start_time,
@@ -2780,16 +2795,14 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         _H_str = f", H={_c['H']}" if _c.get("H") is not None else ""
                         st.markdown(f"- {_c['designation']}  *(q={_c.get('q', 0):.2f} AU{_H_str})*")
 
-                if st.button("\U0001f52d Calculate Visibility for Filtered Comets", key="cat_calc_btn"):
-                    if lat is not None and lon is not None and not (lat == 0.0 and lon == 0.0):
-                        _cat_names = tuple(_c["designation"] for _c in filtered_cat)
-                        _df_cat = get_comet_summary(lat, lon, start_time, _cat_names)
-                        st.session_state["_cat_df"] = _df_cat
-                        st.session_state["_cat_df_lat"] = lat
-                        st.session_state["_cat_df_lon"] = lon
-                        st.session_state["_cat_df_start"] = start_time.isoformat()
-                    else:
-                        st.warning("Set your location in the sidebar first.")
+                if st.button("\U0001f52d Calculate Visibility for Filtered Comets", key="cat_calc_btn",
+                             disabled=(lat is None or lon is None or (lat == 0.0 and lon == 0.0))):
+                    _cat_names = tuple(_c["designation"] for _c in filtered_cat)
+                    _df_cat = get_comet_summary(lat, lon, start_time, _cat_names)
+                    st.session_state["_cat_df"] = _df_cat
+                    st.session_state["_cat_df_lat"] = lat
+                    st.session_state["_cat_df_lon"] = lon
+                    st.session_state["_cat_df_start"] = start_time.isoformat()
 
                 if "_cat_df" in st.session_state:
                     if (st.session_state.get("_cat_df_lat") != lat
@@ -2853,7 +2866,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                     hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG
                                 )
                                 st.markdown("---")
-                                with st.expander("2. 📅 Night Plan Builder", expanded=True):
+                                with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                                     _render_night_plan_builder(
                                         df_obs=_df_obs_cat,
                                         start_time=start_time,
@@ -3253,7 +3266,10 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
     # Batch visibility table
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-        st.info("Set location in sidebar to see visibility summary for all asteroids.")
+        _location_needed()
+        st.markdown("---")
+        with st.expander("2\\. 📅 Night Plan Builder", expanded=False):
+            _location_needed()
     elif active_asteroids:
         df_asteroids = get_asteroid_summary(lat, lon, start_time, tuple(active_asteroids))
 
@@ -3377,7 +3393,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                     unsafe_allow_html=True
                 )
                 st.markdown("---")
-                with st.expander("2. 📅 Night Plan Builder", expanded=True):
+                with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
                         df_obs=df_obs_a,
                         start_time=start_time,
@@ -3680,13 +3696,15 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
         return scrape_unistellar_table()
 
     # Check location first
-    if lat is None or lon is None:
+    if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
         status_msg.empty()
-        st.warning("⚠️ Please set your **Latitude** and **Longitude** in the sidebar first. We need this to calculate Rise/Set times for the targets.")
+        _location_needed()
         df_alerts = None
     else:
         df_alerts = get_scraped_data()
         status_msg.empty()
+        if df_alerts is None:
+            st.warning("⚠️ Could not load Cosmic Cataclysm targets — network issue or site unavailable. Try again shortly.")
 
     # Inject manual events from targets.yaml into df_alerts
     if df_alerts is not None:
@@ -4008,7 +4026,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
 
             # ── Night Plan Builder ─────────────────────────────────────────────
             st.markdown("---")
-            with st.expander("2. 📅 Night Plan Builder", expanded=True):
+            with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                 _render_night_plan_builder(
                     df_obs=df_obs,
                     start_time=start_time,
@@ -4056,8 +4074,17 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
         else:
             st.error(f"Could not find 'Name' column. Found: {cols}")
             st.dataframe(df_alerts, width="stretch")
-    elif lat is not None and lon is not None:
+    elif lat is not None and lon is not None and not (lat == 0.0 and lon == 0.0):
         st.error("Failed to scrape data. Please check the scraper logs.")
+
+    # Sections 2 & 3 placeholders — shown whenever the data block above didn't render them
+    if df_alerts is None or df_alerts.empty:
+        st.markdown("---")
+        with st.expander("2\\. 📅 Night Plan Builder", expanded=False):
+            _location_needed()
+        st.markdown("---")
+        st.subheader("3. Select Target for Trajectory")
+        _location_needed()
 
     return name, sky_coord, resolved, obj_name
 
@@ -4098,6 +4125,8 @@ elif target_mode == "Cosmic Cataclysm":
     )
 
 elif target_mode == "Manual RA/Dec":
+    st.markdown("---")
+    st.subheader("2. Enter Coordinates for Trajectory")
     col1, col2, col3 = st.columns(3)
     with col1:
         name = st.text_input("Object Name (optional)", value="Custom Target", help="Provide a name for your custom target.")
@@ -4118,13 +4147,13 @@ elif target_mode == "Manual RA/Dec":
 # ---------------------------
 # MAIN: Calculation & Output
 # ---------------------------
-st.header("4. Trajectory Results")
+st.header("3. Trajectory Results" if target_mode == "Manual RA/Dec" else "4. Trajectory Results")
 
-if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved):
-    if lat is None or lon is None:
-        st.error("Please enter a valid location (Latitude & Longitude) in the sidebar.")
-        st.stop()
+_no_location = lat is None or lon is None or (lat == 0.0 and lon == 0.0)
+if _no_location:
+    _location_needed()
 
+if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved or _no_location):
     location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
     
     ephem_coords = None
@@ -4160,18 +4189,16 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved)
         current_moon_sep = _ms_min
         if _ms_min < min_moon_sep:
             st.warning(f"⚠️ **Moon Warning:** Target gets as close as {_ms_min:.1f}° to the Moon during this window (Limit: {min_moon_sep}°).")
-        if 'moon_illum' in locals():
-            status = get_moon_status(moon_illum, _ms_min)
-            moon_status_text = f"{_ms_min:.1f}°–{_ms_max:.1f}° ({status})"
+        status = get_moon_status(moon_illum, _ms_min)
+        moon_status_text = f"{_ms_min:.1f}°–{_ms_max:.1f}° ({status})"
     elif moon_loc and sky_coord:
         # Fallback to single start-time value if trajectory Moon Sep unavailable
         sep = moon_sep_deg(sky_coord, moon_loc)
         current_moon_sep = sep
         if sep < min_moon_sep:
             st.warning(f"⚠️ **Moon Warning:** Target is {sep:.1f}° from the Moon (Limit: {min_moon_sep}°).")
-        if 'moon_illum' in locals():
-            status = get_moon_status(moon_illum, sep)
-            moon_status_text = f"{sep:.1f}° ({status})"
+        status = get_moon_status(moon_illum, sep)
+        moon_status_text = f"{sep:.1f}° ({status})"
 
     # --- Observational Filter Check ---
     # Check if any point in the trajectory meets the criteria
