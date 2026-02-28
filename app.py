@@ -3682,7 +3682,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
     # Check location first
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
         status_msg.empty()
-        st.warning("⚠️ Please set your **Latitude** and **Longitude** in the sidebar first. We need this to calculate Rise/Set times for the targets.")
+        st.info("📍 Set your location in the sidebar to see Cosmic Cataclysm targets.")
         df_alerts = None
     else:
         df_alerts = get_scraped_data()
