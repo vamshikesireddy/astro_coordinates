@@ -508,14 +508,7 @@ def generate_plan_pdf(df_plan, night_start, night_end,
     tbl.setStyle(ts)
 
     elems.append(tbl)
-    elems.append(Spacer(1, 0.3 * cm))
-    note_s = ParagraphStyle('note', parent=styles['Normal'], fontSize=7,
-                             textColor=rl_colors.HexColor('#1565C0'))
-    elems.append(Paragraph(
-        "* Target names in blue are clickable deep links - tap to open directly in the Unistellar app.",
-        note_s,
-    ))
-    elems.append(Spacer(1, 0.2 * cm))
+    elems.append(Spacer(1, 0.5 * cm))
     footer_s = ParagraphStyle('f', parent=styles['Normal'], fontSize=7,
                                textColor=rl_colors.grey)
     elems.append(Paragraph(
