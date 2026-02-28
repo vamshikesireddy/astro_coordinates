@@ -4058,7 +4058,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
         else:
             st.error(f"Could not find 'Name' column. Found: {cols}")
             st.dataframe(df_alerts, width="stretch")
-    elif lat is not None and lon is not None:
+    elif lat is not None and lon is not None and not (lat == 0.0 and lon == 0.0):
         st.error("Failed to scrape data. Please check the scraper logs.")
 
     return name, sky_coord, resolved, obj_name
