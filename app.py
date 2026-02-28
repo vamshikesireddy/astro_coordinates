@@ -584,6 +584,12 @@ def _render_night_plan_builder(
                     _vmag_lo = round(float(_vmag_numeric.min()), 1)
                     _vmag_hi = round(float(_vmag_numeric.max()), 1)
                     if _vmag_lo < _vmag_hi:
+                        # Reset stale non-tuple state (same guard as session window slider).
+                        # A persisted scalar would cause _apply_night_plan_filters to crash
+                        # at vmag_range[0] with TypeError: 'float' is not subscriptable.
+                        _vmag_ss_key = f"{section_key}_vmag"
+                        if not isinstance(st.session_state.get(_vmag_ss_key), (tuple, list)):
+                            st.session_state.pop(_vmag_ss_key, None)
                         _vmag_range = st.slider(
                             f"Magnitude ({vmag_col})",
                             min_value=_vmag_lo,
