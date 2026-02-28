@@ -4,6 +4,72 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — Fix: location guard consistency + UX skeleton + markdown list label bug
+
+**Branch:** `fix/location-guard-consistency`
+**Commits:** 59dfb8b, 2775936, e3f3532, cd983ba, c6a80a2, 0812725, fab256e, 9403c21, 5a36953, f63ccb6
+**Tests:** 96 pass
+
+### Comprehensive location guard audit (5 fixes)
+
+Sweep across all sections for locations where `lat=0.0 / lon=0.0` (unset) would
+cause incorrect results or uncaught errors.
+
+**Fixes applied:**
+- Planets section: added `(lat == 0.0 and lon == 0.0)` guard (was missing entirely)
+- Cosmic section: same guard added
+- Trajectory section: same guard added
+- Cosmic scraper silent failure: added `st.warning()` when `df_alerts is None`
+- Dead `in locals()` code: removed `if 'moon_illum' in locals():` wrappers at trajectory
+  moon section (always True since module-scope init); called `get_moon_status()` directly
+
+### Unified `_location_needed()` placeholder (Option B)
+
+All 6 sections previously had different messages (some yellow warning, some blue info,
+some no message at all) when no location was set. Unified with a single helper:
+
+```python
+def _location_needed():
+    st.info("📍 Set your location in the sidebar to see results here.")
+```
+
+All 6 location-gated sections now call `_location_needed()` identically.
+
+### Consistent numbered section skeleton (1→2→3→4)
+
+Every section now shows its full skeleton regardless of location state:
+- `1. Choose Target` (always shown)
+- `2. 📅 Night Plan Builder` (collapsed expander with placeholder when no location)
+- `3. Select X for Trajectory` (placeholder when no location)
+- `4. Trajectory Results` (placeholder when no location)
+
+Manual RA/Dec is the exception (no Night Plan Builder): uses 1→2→3 numbering.
+
+Section headers added to Planet and Cosmic that were previously missing their
+"3. Select X for Trajectory" subheader.
+
+Manual RA/Dec section header renumbered from "3." → "2." and trajectory results
+rendered as "3." (not "4.") for this mode only via ternary:
+```python
+st.header("3. Trajectory Results" if target_mode == "Manual RA/Dec" else "4. Trajectory Results")
+```
+
+### Streamlit expander label markdown list bug
+
+**Bug:** `st.expander("2. 📅 Night Plan Builder")` rendered as `📅 Night Plan Builder`
+(the "2." disappeared). Root cause: Streamlit renders expander labels as markdown.
+`2. text` at the start of a string is parsed as an ordered-list marker — the number
+`2.` becomes the list bullet and is not shown in the rendered output.
+
+**Fix:** Escape the period with a backslash: `"2\\. 📅 Night Plan Builder"`.
+In markdown, `2\.` renders as literal `2.` (escaped period, not a list marker).
+
+**Rule:** In Streamlit, any label/expander/tab text starting with `N. ` (digit + dot +
+space) will have the number stripped by markdown list rendering. Escape with `N\\.` or
+reorder so the string doesn't start with a digit-dot.
+
+---
+
 ## 2026-03-01 — Fix: vmag slider isinstance guard, _cat_df staleness, lat=0.0 guards
 
 **Branch:** `fix/location-state-guards` + direct main hotfix
