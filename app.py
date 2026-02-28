@@ -69,6 +69,10 @@ from backend.app_logic import (
 
 st.set_page_config(page_title="AstroPlanner", page_icon="🔭", layout="wide", initial_sidebar_state="expanded")
 
+def _location_needed():
+    """Consistent placeholder shown in every section that requires a location."""
+    st.info("📍 Set your location in the sidebar to see results here.")
+
 @st.cache_data(ttl=3600, show_spinner="Calculating planetary visibility...")
 def get_planet_summary(lat, lon, start_time):
     planet_map = {
@@ -1855,7 +1859,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
 
     # --- Batch Visibility Table ---
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-        st.info("Set location in sidebar to see batch visibility for all objects in this catalog.")
+        _location_needed()
     elif dso_list:
         dso_tuple = tuple(
             (d["name"], float(d["ra"]), float(d["dec"]),
@@ -2060,7 +2064,7 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
     }
 
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-        st.info("Set location in sidebar to see visibility summary for all planets.")
+        _location_needed()
     else:
         df_planets = get_planet_summary(lat, lon, start_time)
         if not df_planets.empty:
@@ -2501,7 +2505,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
         # Batch visibility table
         if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-            st.info("Set location in sidebar to see visibility summary for all comets.")
+            _location_needed()
         elif active_comets:
             df_comets = get_comet_summary(lat, lon, start_time, tuple(active_comets))
 
@@ -2780,16 +2784,14 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         _H_str = f", H={_c['H']}" if _c.get("H") is not None else ""
                         st.markdown(f"- {_c['designation']}  *(q={_c.get('q', 0):.2f} AU{_H_str})*")
 
-                if st.button("\U0001f52d Calculate Visibility for Filtered Comets", key="cat_calc_btn"):
-                    if lat is not None and lon is not None and not (lat == 0.0 and lon == 0.0):
-                        _cat_names = tuple(_c["designation"] for _c in filtered_cat)
-                        _df_cat = get_comet_summary(lat, lon, start_time, _cat_names)
-                        st.session_state["_cat_df"] = _df_cat
-                        st.session_state["_cat_df_lat"] = lat
-                        st.session_state["_cat_df_lon"] = lon
-                        st.session_state["_cat_df_start"] = start_time.isoformat()
-                    else:
-                        st.warning("Set your location in the sidebar first.")
+                if st.button("\U0001f52d Calculate Visibility for Filtered Comets", key="cat_calc_btn",
+                             disabled=(lat is None or lon is None or (lat == 0.0 and lon == 0.0))):
+                    _cat_names = tuple(_c["designation"] for _c in filtered_cat)
+                    _df_cat = get_comet_summary(lat, lon, start_time, _cat_names)
+                    st.session_state["_cat_df"] = _df_cat
+                    st.session_state["_cat_df_lat"] = lat
+                    st.session_state["_cat_df_lon"] = lon
+                    st.session_state["_cat_df_start"] = start_time.isoformat()
 
                 if "_cat_df" in st.session_state:
                     if (st.session_state.get("_cat_df_lat") != lat
@@ -3253,7 +3255,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
     # Batch visibility table
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
-        st.info("Set location in sidebar to see visibility summary for all asteroids.")
+        _location_needed()
     elif active_asteroids:
         df_asteroids = get_asteroid_summary(lat, lon, start_time, tuple(active_asteroids))
 
@@ -3682,7 +3684,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
     # Check location first
     if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
         status_msg.empty()
-        st.info("📍 Set your location in the sidebar to see Cosmic Cataclysm targets.")
+        _location_needed()
         df_alerts = None
     else:
         df_alerts = get_scraped_data()
@@ -4124,7 +4126,7 @@ st.header("4. Trajectory Results")
 
 _no_location = lat is None or lon is None or (lat == 0.0 and lon == 0.0)
 if _no_location:
-    st.info("📍 Set your location in the sidebar before calculating visibility.")
+    _location_needed()
 
 if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved or _no_location):
     location = EarthLocation(lat=lat*u.deg, lon=lon*u.deg)
