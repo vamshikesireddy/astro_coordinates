@@ -11,3 +11,4 @@ astroquery
 PyGithub
 PyYAML
 reportlab
+openpyxl
