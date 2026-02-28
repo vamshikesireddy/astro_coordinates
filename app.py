@@ -4063,6 +4063,12 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
     elif lat is not None and lon is not None and not (lat == 0.0 and lon == 0.0):
         st.error("Failed to scrape data. Please check the scraper logs.")
 
+    # Section 3 placeholder — shown whenever the data block above didn't render it
+    if df_alerts is None or df_alerts.empty:
+        st.markdown("---")
+        st.subheader("3. Select Target for Trajectory")
+        _location_needed()
+
     return name, sky_coord, resolved, obj_name
 
 
@@ -4102,6 +4108,8 @@ elif target_mode == "Cosmic Cataclysm":
     )
 
 elif target_mode == "Manual RA/Dec":
+    st.markdown("---")
+    st.subheader("3. Enter Coordinates for Trajectory")
     col1, col2, col3 = st.columns(3)
     with col1:
         name = st.text_input("Object Name (optional)", value="Custom Target", help="Provide a name for your custom target.")
