@@ -577,6 +577,45 @@ def _df_to_cosmic_xlsx(df, name_col, link_col):
     return buf.getvalue()
 
 
+@st.fragment
+def _dso_table_and_image(df: "pd.DataFrame", display_cols: list) -> None:
+    """Fragment: re-runs only on row click — skips the full observability loop."""
+    show = [c for c in display_cols if c in df.columns]
+    st.caption("Click any row to see a photo and details for that object.")
+    sel = st.dataframe(
+        df[show], hide_index=True, use_container_width=True,
+        on_select="rerun", selection_mode="single-row",
+        column_config=_MOON_SEP_COL_CONFIG,
+    )
+    if sel and sel.selection.rows:
+        _row_idx = sel.selection.rows[0]
+        _sel_row = df.iloc[_row_idx]
+        _img_path = _get_dso_local_image(_sel_row.get("Name", ""))
+        with st.container(border=True):
+            _ic1, _ic2 = st.columns([1, 2])
+            with _ic1:
+                if _img_path:
+                    st.image(str(_img_path), use_container_width=True)
+                else:
+                    st.info("📷 No image available for this object")
+            with _ic2:
+                _obj_name = _sel_row.get("Name", "")
+                _common = _sel_row.get("Common Name", "")
+                _heading = f"{_obj_name} — {_common}" if _common else _obj_name
+                st.markdown(f"### {_heading}")
+                st.markdown(f"**Type:** {_sel_row.get('Type', '—')}  |  **Magnitude:** {_sel_row.get('Magnitude', '—')}")
+                st.markdown(f"**Constellation:** {_sel_row.get('Constellation', '—')}")
+                st.markdown(
+                    f"**Rise:** {_sel_row.get('Rise', '—')}  "
+                    f"**Transit:** {_sel_row.get('Transit', '—')}  "
+                    f"**Set:** {_sel_row.get('Set', '—')}"
+                )
+                st.markdown(
+                    f"**Moon Sep:** {_sel_row.get('Moon Sep (°)', '—')}  "
+                    f"**Status:** {_sel_row.get('Moon Status', '—')}"
+                )
+
+
 def _render_night_plan_builder(
     df_obs, start_time, night_plan_start, night_plan_end, local_tz,
     target_col="Name", ra_col="RA", dec_col="Dec",
@@ -2024,14 +2063,6 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
             display_cols_d = ["Name", "Common Name", "Type", "Magnitude", "Constellation",
                               "Rise", "Transit", "Set", "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
-            def display_dso_table(df_in):
-                show = [c for c in display_cols_d if c in df_in.columns]
-                return st.dataframe(
-                    df_in[show], hide_index=True, use_container_width=True,
-                    on_select="rerun", selection_mode="single-row",
-                    column_config=_MOON_SEP_COL_CONFIG,
-                )
-
             tab_obs_d, tab_filt_d = st.tabs([
                 f"🎯 Observable ({len(df_obs_d)})",
                 f"👻 Unobservable ({len(df_filt_d)})"
@@ -2041,34 +2072,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 st.subheader(f"Observable — {category}")
                 _chart_sort_d = plot_visibility_timeline(df_obs_d, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
                 _df_sorted_d = _sort_df_like_chart(df_obs_d, _chart_sort_d) if _chart_sort_d else df_obs_d
-                _dso_sel = display_dso_table(_df_sorted_d)
-                if _dso_sel and _dso_sel.selection.rows:
-                    _row_idx = _dso_sel.selection.rows[0]
-                    _sel_row = _df_sorted_d.iloc[_row_idx]
-                    _img_path = _get_dso_local_image(_sel_row.get("Name", ""))
-                    with st.container(border=True):
-                        _ic1, _ic2 = st.columns([1, 2])
-                        with _ic1:
-                            if _img_path:
-                                st.image(str(_img_path), use_container_width=True)
-                            else:
-                                st.info("📷 No image available for this object")
-                        with _ic2:
-                            _obj_name = _sel_row.get("Name", "")
-                            _common = _sel_row.get("Common Name", "")
-                            _heading = f"{_obj_name} — {_common}" if _common else _obj_name
-                            st.markdown(f"### {_heading}")
-                            st.markdown(f"**Type:** {_sel_row.get('Type', '—')}  |  **Magnitude:** {_sel_row.get('Magnitude', '—')}")
-                            st.markdown(f"**Constellation:** {_sel_row.get('Constellation', '—')}")
-                            st.markdown(
-                                f"**Rise:** {_sel_row.get('Rise', '—')}  "
-                                f"**Transit:** {_sel_row.get('Transit', '—')}  "
-                                f"**Set:** {_sel_row.get('Set', '—')}"
-                            )
-                            st.markdown(
-                                f"**Moon Sep:** {_sel_row.get('Moon Sep (°)', '—')}  "
-                                f"**Status:** {_sel_row.get('Moon Status', '—')}"
-                            )
+                _dso_table_and_image(_df_sorted_d, display_cols_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 st.markdown("---")
                 with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
