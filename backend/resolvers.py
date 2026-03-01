@@ -79,6 +79,34 @@ def resolve_horizons(obj_name, obs_time_str="2026-02-13 00:30:00", location_code
     except Exception as e:
         raise RuntimeError(f"JPL Horizons lookup failed for {obj_name}: {e}")
 
+def resolve_horizons_with_mag(obj_name, obs_time_str, section, location_code='500'):
+    """Like resolve_horizons but also returns visual magnitude.
+
+    section: 'comets' → reads T-mag column; 'asteroids' → reads V column.
+    Returns (name, SkyCoord, vmag) where vmag is float or None.
+    vmag is None when the column is absent or the value is out of range.
+    """
+    obs_time = Time(obs_time_str)
+    closest_apparition = (section == 'comets')
+    result = _horizons_query(
+        obj_name, location_code, obs_time.jd,
+        closest_apparition=closest_apparition,
+    )
+    ra  = result['RA'][0]  * u.deg
+    dec = result['DEC'][0] * u.deg
+    sky_coord = SkyCoord(ra=ra, dec=dec, frame='icrs')
+
+    vmag_col = 'T-mag' if section == 'comets' else 'V'
+    vmag = None
+    try:
+        v = float(result[vmag_col][0])
+        if -10 < v < 40:
+            vmag = round(v, 2)
+    except (KeyError, ValueError, TypeError):
+        pass
+
+    return obj_name, sky_coord, vmag
+
 def get_horizons_ephemerides(obj_name, start_time, duration_minutes=240, step_minutes=10, location_code='500'):
     """Queries JPL Horizons for a range of times to get dynamic coordinates."""
     try:
