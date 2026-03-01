@@ -12,3 +12,4 @@ PyGithub
 PyYAML
 reportlab
 openpyxl
+Pillow
