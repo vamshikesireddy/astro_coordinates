@@ -1988,7 +1988,8 @@ st.header("1. Choose Target")
 target_mode = st.radio(
     "Select Object Type:",
     ["Star/Galaxy/Nebula (SIMBAD)", "Planet (JPL Horizons)", "Comet (JPL Horizons)", "Asteroid (JPL Horizons)", "Cosmic Cataclysm", "Manual RA/Dec"],
-    horizontal=True
+    horizontal=True,
+    key="target_mode"
 )
 
 name = "Unknown"
@@ -2342,7 +2343,7 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
 
     st.markdown("---")
     st.subheader("3. Select Planet for Trajectory")
-    selected_target = st.selectbox("Select a Planet", list(planet_map.keys()))
+    selected_target = st.selectbox("Select a Planet", list(planet_map.keys()), key="planet_traj_sel")
 
     # Use JPL Horizons IDs to avoid ambiguity (e.g. Mercury vs Mercury Barycenter)
     obj_name = planet_map[selected_target]
@@ -4233,7 +4234,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
                 "Uses your **sidebar location and session start time** — adjust those first if needed."
             )
             targets = df_display[target_col].unique()
-            obj_name = st.selectbox("Select Target", targets)
+            obj_name = st.selectbox("Select Target", targets, key="cosmic_traj_sel")
 
             if obj_name:
                 row = df_alerts[df_alerts[target_col] == obj_name].iloc[0]
