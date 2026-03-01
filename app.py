@@ -1879,35 +1879,18 @@ if _az_selected_count == 0 or _az_selected_count == len(_AZ_LABELS):
     st.sidebar.caption("📡 All 360° shown by default — check directions to restrict to a specific part of the sky.")
 else:
     st.sidebar.caption(_az_status)
-# Compass grid: 3×3 button layout matching sky directions
-_az_grid = [
-    ["NW", "N",  "NE"],
-    ["W",  None, "E" ],
-    ["SW", "S",  "SE"],
-]
+_az_cols = st.sidebar.columns(2)
 az_dirs = set()
-for _az_row in _az_grid:
-    _row_cols = st.sidebar.columns(3)
-    for _col, _lbl in zip(_row_cols, _az_row):
-        with _col:
-            if _lbl is None:
-                if st.button("ALL", key="az_all", use_container_width=True, help="Clear all direction filters"):
-                    for _d in _AZ_LABELS:
-                        st.session_state[f"az_{_d}"] = False
-                    st.rerun()
-            else:
-                _selected = st.session_state.get(f"az_{_lbl}", False)
-                _btn_lbl = f"✓ {_lbl}" if _selected else _lbl
-                if st.button(_btn_lbl, key=f"az_btn_{_lbl}", use_container_width=True):
-                    st.session_state[f"az_{_lbl}"] = not _selected
-                    st.rerun()
-                if _selected:
-                    az_dirs.add(_lbl)
-# Degree range legend
-st.sidebar.caption(
-    "N:337.5–22.5° · NE:22.5–67.5° · E:67.5–112.5° · SE:112.5–157.5°\n"
-    "S:157.5–202.5° · SW:202.5–247.5° · W:247.5–292.5° · NW:292.5–337.5°"
-)
+for _i, _d in enumerate(_AZ_LABELS):
+    with _az_cols[_i % 2]:
+        if st.checkbox(_d, key=f"az_{_d}"):
+            az_dirs.add(_d)
+        st.caption(_AZ_CAPTIONS[_d])
+if _az_selected_count > 0 and _az_selected_count < len(_AZ_LABELS):
+    def _clear_az_dirs():
+        for _d in _AZ_LABELS:
+            st.session_state[f"az_{_d}"] = False
+    st.sidebar.button("✕ Clear direction filter", key="az_clear_all", use_container_width=True, on_click=_clear_az_dirs)
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
