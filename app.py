@@ -1412,7 +1412,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
         target_date = start_time.date().isoformat()
         cached_pos = lookup_cached_position(_ephem, "asteroids", asteroid_name, target_date)
         if cached_pos is not None:
-            ra_deg, dec_deg, _ = cached_pos
+            ra_deg, dec_deg, vmag = cached_pos
             sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
@@ -1424,6 +1424,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
                 "_ra_deg":  sky_coord.ra.deg,
                 "Moon Sep (°)": round(moon_sep, 1),
                 "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "Magnitude": vmag,
                 "_jpl_id_used": "(ephemeris cache)",
             }
             row.update(details)
@@ -1433,10 +1434,10 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
         jpl_id = _asteroid_id_local(asteroid_name)
         try:
             try:
-                _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
+                _, sky_coord, vmag = resolve_horizons_with_mag(jpl_id, obs_time_str, 'asteroids')
             except Exception:
                 _time.sleep(1.5)
-                _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
+                _, sky_coord, vmag = resolve_horizons_with_mag(jpl_id, obs_time_str, 'asteroids')
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
             row = {
@@ -1447,6 +1448,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
                 "_ra_deg":  sky_coord.ra.deg,
                 "Moon Sep (°)": round(moon_sep, 1),
                 "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                "Magnitude": vmag,
                 "_jpl_id_used": jpl_id,
             }
             row.update(details)
@@ -1457,7 +1459,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
                 sbdb_id = sbdb_lookup(jpl_id)
             if sbdb_id and sbdb_id != jpl_id:
                 try:
-                    _, sky_coord = resolve_horizons(sbdb_id, obs_time_str=obs_time_str)
+                    _, sky_coord, vmag = resolve_horizons_with_mag(sbdb_id, obs_time_str, 'asteroids')
                     _save_jpl_cache_entry("asteroids", asteroid_name, sbdb_id)
                     details = calculate_planning_info(sky_coord, location, start_time)
                     moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
@@ -1469,6 +1471,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
                         "_ra_deg":  sky_coord.ra.deg,
                         "Moon Sep (°)": round(moon_sep, 1),
                         "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
+                        "Magnitude": vmag,
                         "_jpl_id_used": sbdb_id,
                     }
                     row.update(details)
@@ -1482,6 +1485,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
                 "Status": "—", "Constellation": "—",
                 "_rise_datetime": pd.NaT, "_set_datetime": pd.NaT, "_transit_datetime": pd.NaT,
                 "Moon Sep (°)": "—", "Moon Status": "—",
+                "Magnitude": None,
                 "_resolve_error": True,
                 "_jpl_id_tried": jpl_id,
                 "_jpl_id_used": jpl_id,
