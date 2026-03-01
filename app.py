@@ -59,7 +59,7 @@ CONFIG = {
 }
 
 from backend.app_logic import (
-    _AZ_OCTANTS, _AZ_LABELS, _AZ_CAPTIONS, az_in_selected,
+    _AZ_OCTANTS, _AZ_LABELS, az_in_selected,
     get_moon_status, _check_row_observability,
     _sort_df_like_chart, build_night_plan,
     _sanitize_csv_df, _add_peak_alt_session,
@@ -1866,6 +1866,17 @@ st.sidebar.subheader("🔭 Observational Filters")
 st.sidebar.caption("Applies to lists and visibility warnings.")
 alt_range = st.sidebar.slider("Altitude Window (°)", 0, 90, (CONFIG["default_alt_min"], 90), help="Target must be within this altitude range (Min to Max).")
 min_alt, max_alt = alt_range
+def _toggle_az(lbl):
+    """Toggle one azimuth direction in session state (used by compass grid on_click)."""
+    st.session_state[f"az_{lbl}"] = not st.session_state.get(f"az_{lbl}", False)
+
+
+def _clear_az():
+    """Clear all azimuth direction filters (used by ALL button on_click)."""
+    for _d in _AZ_LABELS:
+        st.session_state[f"az_{_d}"] = False
+
+
 # Compute az_dirs from session state before rendering so the status
 # caption can appear directly under the heading (above the checkboxes).
 az_dirs = {_d for _d in _AZ_LABELS if st.session_state.get(f"az_{_d}", False)}
@@ -1880,18 +1891,33 @@ if _az_selected_count == 0 or _az_selected_count == len(_AZ_LABELS):
     st.sidebar.caption("📡 All 360° shown by default — check directions to restrict to a specific part of the sky.")
 else:
     st.sidebar.caption(_az_status)
-_az_cols = st.sidebar.columns(2)
+# Compass grid: 3×3 button layout matching sky directions.
+# Rebuild az_dirs from session state after buttons are rendered.
+# The pre-render set above was used only for the status caption.
+_az_ranges = {
+    "N": "337–22°", "NE": "22–67°",  "E": "67–112°",  "SE": "112–157°",
+    "S": "157–202°","SW": "202–247°","W": "247–292°",  "NW": "292–337°",
+}
+_az_grid = [
+    ["NW", "N",  "NE"],
+    ["W",  None, "E" ],
+    ["SW", "S",  "SE"],
+]
 az_dirs = set()
-for _i, _d in enumerate(_AZ_LABELS):
-    with _az_cols[_i % 2]:
-        if st.checkbox(_d, key=f"az_{_d}"):
-            az_dirs.add(_d)
-        st.caption(_AZ_CAPTIONS[_d])
-if _az_selected_count > 0 and _az_selected_count < len(_AZ_LABELS):
-    def _clear_az_dirs():
-        for _d in _AZ_LABELS:
-            st.session_state[f"az_{_d}"] = False
-    st.sidebar.button("✕ Clear direction filter", key="az_clear_all", use_container_width=True, on_click=_clear_az_dirs)
+for _az_row in _az_grid:
+    _row_cols = st.sidebar.columns(3)
+    for _col, _lbl in zip(_row_cols, _az_row):
+        with _col:
+            if _lbl is None:
+                st.button("ALL", key="az_all", use_container_width=True,
+                          help="Clear all direction filters", on_click=_clear_az)
+            else:
+                _selected = st.session_state.get(f"az_{_lbl}", False)
+                _btn_lbl = f"✓ {_lbl}" if _selected else _lbl
+                st.button(_btn_lbl, key=f"az_btn_{_lbl}", use_container_width=True,
+                          help=_az_ranges[_lbl], on_click=_toggle_az, args=(_lbl,))
+                if _selected:
+                    az_dirs.add(_lbl)
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")

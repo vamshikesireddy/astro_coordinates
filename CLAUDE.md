@@ -95,6 +95,10 @@ Full code examples in `docs/claude/patterns.md`.
 - **Horizons column names:** `Tmag` (comet total mag, no hyphen), `V` (asteroid visual) — verify exact names before adding any new magnitude column
 - **Range sliders:** add `isinstance(st.session_state.get(key), (tuple, list))` guard before render — stale scalar causes `TypeError: 'float' is not subscriptable` on `range[0]`
 - **Hidden-column exemptions:** `_peak_alt_session` and `_dec_deg` must be in the Cosmic section's `hidden_cols` exception list or they disappear from the table
+- **Widget keys are mandatory:** Every `st.radio`, `st.selectbox`, `st.slider`, `st.checkbox` MUST have `key=`. Keyless widgets silently reset to their default during any programmatic `st.rerun()` call — even one fired elsewhere in the app (e.g. admin panel).
+- **Sidebar toggle buttons → use `on_click`, not `st.rerun()`:** `on_click` callbacks fire during the natural widget-interaction rerun. `st.rerun()` from a sidebar button will reset all keyless widgets in the app. Only use `st.rerun()` inside admin panel expanders where users aren't navigating sections.
+- **`plot_visibility_timeline()` requires `chart_key=`:** Without it the sort radio is keyless. Pass a unique string per call site: `chart_key="dso"`, `"planet"`, `"comet"`, `"comet_cat"`, `"asteroid"`, `"cosmic"`, `"manual_traj"`.
+- **`st.button` labels don't support newlines or HTML:** `\n` in a button label renders as a space. Use `help="..."` for supplementary info (tooltip on hover).
 
 ---
 
