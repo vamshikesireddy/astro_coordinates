@@ -1189,7 +1189,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
         target_date = start_time.date().isoformat()   # e.g. "2026-03-05"
         cached_pos = lookup_cached_position(_ephem, "comets", comet_name, target_date)
         if cached_pos is not None:
-            ra_deg, dec_deg = cached_pos
+            ra_deg, dec_deg, _ = cached_pos
             sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
@@ -1408,7 +1408,7 @@ def get_asteroid_summary(lat, lon, start_time, asteroid_tuple):
         target_date = start_time.date().isoformat()
         cached_pos = lookup_cached_position(_ephem, "asteroids", asteroid_name, target_date)
         if cached_pos is not None:
-            ra_deg, dec_deg = cached_pos
+            ra_deg, dec_deg, _ = cached_pos
             sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0

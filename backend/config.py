@@ -113,11 +113,14 @@ def read_ephemeris_cache(path):
 
 
 def lookup_cached_position(cache, section, name, target_date_str):
-    """Return (ra, dec) from pre-computed ephemeris cache for a given object+date, or None."""
+    """Return (ra, dec, vmag) from pre-computed ephemeris cache, or None on miss.
+
+    vmag is None when not present in the cache entry (e.g. old cache format).
+    """
     obj = cache.get(section, {}).get(name)
     if not obj:
         return None
     for pos in obj.get('positions', []):
         if pos['date'] == target_date_str:
-            return pos['ra'], pos['dec']
+            return pos['ra'], pos['dec'], pos.get('vmag')
     return None

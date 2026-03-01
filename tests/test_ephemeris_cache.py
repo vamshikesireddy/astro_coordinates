@@ -68,7 +68,8 @@ def test_lookup_cached_position_hit():
         }
     }
     result = _lookup_cached_position(cache, "comets", "C/2024 G3 (ATLAS)", "2026-03-05")
-    assert result == (99.9, 10.1)
+    # Old entry has no vmag field → returns (ra, dec, None)
+    assert result == (99.9, 10.1, None)
 
 def test_lookup_cached_position_miss():
     from backend.config import lookup_cached_position as _lookup_cached_position
@@ -155,3 +156,29 @@ def test_extract_positions_old_signature_still_works():
     positions = _extract_positions(rows)   # no section
     assert "vmag" in positions[0]
     assert positions[0]["vmag"] is None
+
+
+def test_lookup_cached_position_hit_with_vmag():
+    """Cache entry with vmag → returns (ra, dec, vmag)."""
+    from backend.config import lookup_cached_position as _lcp
+    cache = {
+        "comets": {
+            "C/2024 G3 (ATLAS)": {
+                "positions": [{"date": "2026-03-05", "ra": 99.9, "dec": 10.1, "vmag": 7.5}]
+            }
+        }
+    }
+    result = _lcp(cache, "comets", "C/2024 G3 (ATLAS)", "2026-03-05")
+    assert result == (99.9, 10.1, 7.5)
+
+
+def test_lookup_cached_position_hit_without_vmag_returns_none():
+    """Old cache entry (no vmag field) → vmag part is None, no crash."""
+    from backend.config import lookup_cached_position as _lcp
+    cache = {
+        "comets": {
+            "X": {"positions": [{"date": "2026-03-05", "ra": 1.0, "dec": 2.0}]}
+        }
+    }
+    result = _lcp(cache, "comets", "X", "2026-03-05")
+    assert result == (1.0, 2.0, None)
