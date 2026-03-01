@@ -65,9 +65,9 @@ def _extract_positions(result, section=None):
         if vmag_col:
             try:
                 v = float(row[vmag_col])
-                if 0 < v < 40:   # sanity range — reject masked/garbage values
+                if -10 < v < 40:   # sanity range — allow bright objects (Venus ~-4.5); reject masked/garbage
                     vmag = round(v, 2)
-            except Exception:
+            except (KeyError, ValueError, TypeError):
                 pass
         positions.append({
             'date': t.datetime.strftime('%Y-%m-%d'),
