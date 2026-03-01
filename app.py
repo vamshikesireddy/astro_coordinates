@@ -39,7 +39,7 @@ except ImportError:
     Github = None           # optional: admin panel GitHub sync disabled without this
 
 # Import from local modules
-from backend.resolvers import resolve_simbad, resolve_horizons, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
+from backend.resolvers import resolve_simbad, resolve_horizons, resolve_horizons_with_mag, get_horizons_ephemerides, resolve_planet, get_planet_ephemerides
 from backend.core import compute_trajectory, calculate_planning_info, azimuth_to_compass, moon_sep_deg, compute_peak_alt_in_window
 from backend.scrape import scrape_unistellar_table, scrape_unistellar_priority_comets, scrape_unistellar_priority_asteroids
 from backend.github import create_issue as _gh_create_issue
@@ -1189,7 +1189,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
         target_date = start_time.date().isoformat()   # e.g. "2026-03-05"
         cached_pos = lookup_cached_position(_ephem, "comets", comet_name, target_date)
         if cached_pos is not None:
-            ra_deg, dec_deg, _ = cached_pos
+            ra_deg, dec_deg, vmag = cached_pos
             sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
@@ -1199,6 +1199,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                 "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
                 "_dec_deg": sky_coord.dec.degree,
                 "_ra_deg":  sky_coord.ra.deg,
+                "Magnitude": vmag,
                 "Moon Sep (°)": round(moon_sep, 1),
                 "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
                 "_jpl_id_used": "(ephemeris cache)",
@@ -1210,10 +1211,10 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
         jpl_id = _comet_id_local(comet_name)
         try:
             try:
-                _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
+                _, sky_coord, vmag = resolve_horizons_with_mag(jpl_id, obs_time_str, 'comets')
             except Exception:
                 _time.sleep(1.5)  # one retry after backoff — JPL rate-limits parallel requests
-                _, sky_coord = resolve_horizons(jpl_id, obs_time_str=obs_time_str)
+                _, sky_coord, vmag = resolve_horizons_with_mag(jpl_id, obs_time_str, 'comets')
             details = calculate_planning_info(sky_coord, location, start_time)
             moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
             row = {
@@ -1222,6 +1223,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                 "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
                 "_dec_deg": sky_coord.dec.degree,
                 "_ra_deg":  sky_coord.ra.deg,
+                "Magnitude": vmag,
                 "Moon Sep (°)": round(moon_sep, 1),
                 "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
                 "_jpl_id_used": jpl_id,
@@ -1235,7 +1237,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                 sbdb_id = sbdb_lookup(jpl_id)
             if sbdb_id and sbdb_id != jpl_id:
                 try:
-                    _, sky_coord = resolve_horizons(sbdb_id, obs_time_str=obs_time_str)
+                    _, sky_coord, vmag = resolve_horizons_with_mag(sbdb_id, obs_time_str, 'comets')
                     _save_jpl_cache_entry("comets", comet_name, sbdb_id)
                     details = calculate_planning_info(sky_coord, location, start_time)
                     moon_sep = moon_sep_deg(sky_coord, moon_loc_inner) if moon_loc_inner else 0.0
@@ -1245,6 +1247,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                         "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
                         "_dec_deg": sky_coord.dec.degree,
                         "_ra_deg":  sky_coord.ra.deg,
+                        "Magnitude": vmag,
                         "Moon Sep (°)": round(moon_sep, 1),
                         "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
                         "_jpl_id_used": sbdb_id,
@@ -1260,6 +1263,7 @@ def get_comet_summary(lat, lon, start_time, comet_tuple):
                 "Rise": "—", "Transit": "—", "Set": "—",
                 "Status": "—", "Constellation": "—",
                 "_rise_datetime": pd.NaT, "_set_datetime": pd.NaT, "_transit_datetime": pd.NaT,
+                "Magnitude": None,
                 "Moon Sep (°)": "—", "Moon Status": "—",
                 "_resolve_error": True,
                 "_jpl_id_tried": jpl_id,
