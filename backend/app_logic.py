@@ -365,7 +365,7 @@ def _get_dso_image_url(ra: float, dec: float, obj_type: str, curated_url: str | 
         return curated_url
     fov = 0.3 if obj_type == "Star" else 1.0
     return (
-        f"https://aladin.cds.unistra.fr/hips-image-services/hips2fits?"
+        f"https://alasky.cds.unistra.fr/hips-image-services/hips2fits?"
         f"hips=CDS/P/DSS2/color&ra={ra}&dec={dec}"
         f"&width=400&height=400&fov={fov}&format=jpg"
     )
