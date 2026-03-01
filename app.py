@@ -121,7 +121,7 @@ def get_planet_summary(lat, lon, start_time):
             continue
     return pd.DataFrame(data)
 
-def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_label="Default Order", priority_col=None):
+def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_label="Default Order", priority_col=None, brightness_col=None):
     """Generates a Gantt-style chart showing Rise to Set times.
 
     obs_start / obs_end: naive local datetimes for the observation window overlay.
@@ -177,9 +177,13 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
     chart_data['set_label'] = chart_data.apply(lambda x: "" if "Always Up" in str(x['Status']) else x['_set_naive'].strftime('%m-%d %H:%M'), axis=1)
 
     # Sort Toggle
+    _sort_options = ["Earliest Set", "Earliest Rise", "Earliest Transit", default_sort_label]
+    if brightness_col and brightness_col in chart_data.columns and chart_data[brightness_col].notna().any():
+        _sort_options.append("Brightest First")
+
     sort_option = st.radio(
         "Sort Graph By:",
-        ["Earliest Set", "Earliest Rise", "Earliest Transit", default_sort_label],
+        _sort_options,
         horizontal=True,
         label_visibility="collapsed"
     )
@@ -207,6 +211,10 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
     elif sort_option == "Earliest Transit":
         _reg_sorted_names = _reg_df.sort_values('_transit_naive', ascending=True, na_position='last')['Name'].tolist()
         sort_arg = _reg_sorted_names + _au_sorted_names   # Always Up at bottom
+    elif sort_option == "Brightest First" and brightness_col and brightness_col in chart_data.columns:
+        _tmp = chart_data.copy()
+        _tmp['_vmag_sort'] = pd.to_numeric(_tmp[brightness_col], errors='coerce')
+        sort_arg = _tmp.sort_values('_vmag_sort', ascending=True, na_position='last')['Name'].tolist()
     else:  # Default Order / Priority Order — preserve source order, optionally rank by priority
         if priority_col and priority_col in chart_data.columns:
             _PRI_RANK = {"URGENT": 0, "HIGH": 1, "LOW": 2}
@@ -2746,7 +2754,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                 _add_peak_alt_session(df_obs_c, location, start_time, start_time + timedelta(minutes=duration))
                 df_filt_c = df_comets[~df_comets["is_observable"]].copy()
 
-                display_cols_c = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
+                display_cols_c = ["Name", "Priority", "Magnitude", "Window", "Constellation", "Rise", "Transit", "Set",
                                   "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
                 def display_comet_table(df_in):
@@ -2775,8 +2783,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
                 with tab_obs_c:
                     st.subheader("Observable Comets")
-                    _chart_sort_c = plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
-                    _df_sorted_c = _sort_df_like_chart(df_obs_c, _chart_sort_c, priority_col="Priority") if _chart_sort_c else df_obs_c
+                    _chart_sort_c = plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority", brightness_col="Magnitude")
+                    _df_sorted_c = _sort_df_like_chart(df_obs_c, _chart_sort_c, priority_col="Priority", brightness_col="Magnitude") if _chart_sort_c else df_obs_c
                     display_comet_table(_df_sorted_c)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                     st.markdown(
@@ -2795,6 +2803,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                             local_tz=local_tz,
                             target_col="Name", ra_col="RA", dec_col="Dec",
                             pri_col="Priority",
+                            vmag_col="Magnitude",
                             csv_label="📊 All Comets (CSV)",
                             csv_filename="comets_visibility.csv",
                             section_key="comet_mylist",
@@ -3494,7 +3503,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
             _add_peak_alt_session(df_obs_a, location, start_time, start_time + timedelta(minutes=duration))
             df_filt_a = df_asteroids[~df_asteroids["is_observable"]].copy()
 
-            display_cols_a = ["Name", "Priority", "Window", "Constellation", "Rise", "Transit", "Set",
+            display_cols_a = ["Name", "Priority", "Magnitude", "Window", "Constellation", "Rise", "Transit", "Set",
                               "RA", "_dec_deg", "Status", "_peak_alt_session", "Moon Sep (°)", "Moon Status"]
 
             def display_asteroid_table(df_in):
@@ -3523,8 +3532,8 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
             with tab_obs_a:
                 st.subheader("Observable Asteroids")
-                _chart_sort_a = plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority")
-                _df_sorted_a = _sort_df_like_chart(df_obs_a, _chart_sort_a, priority_col="Priority") if _chart_sort_a else df_obs_a
+                _chart_sort_a = plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority", brightness_col="Magnitude")
+                _df_sorted_a = _sort_df_like_chart(df_obs_a, _chart_sort_a, priority_col="Priority", brightness_col="Magnitude") if _chart_sort_a else df_obs_a
                 display_asteroid_table(_df_sorted_a)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
                 st.markdown(
@@ -3543,6 +3552,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                         local_tz=local_tz,
                         target_col="Name", ra_col="RA", dec_col="Dec",
                         pri_col="Priority",
+                        vmag_col="Magnitude",
                         csv_label="📊 All Asteroids (CSV)",
                         csv_filename="asteroids_visibility.csv",
                         section_key="asteroid",
