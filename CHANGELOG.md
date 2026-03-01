@@ -4,6 +4,45 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — Azimuth compass grid + Streamlit keyless widget audit
+
+**Branch:** `feature/azimuth-compass-grid` (on top of `main` fixes `807b398`, `840552e`)
+
+### What shipped
+- Replaced 8-checkbox azimuth direction filter with a 3×3 compass grid of toggle buttons (NW/N/NE, W/ALL/E, SW/S/SE). Fixes ~600px mobile sidebar scroll.
+- Each button shows direction label + degree range as a tooltip (`help=`). Selected state shown as `✓ N`.
+- ALL center button clears all direction filters.
+
+### Bug: Messier objects appearing on Cosmic Cataclysm page
+
+**Symptom:** While on Cosmic Cataclysm section, clicking an azimuth direction button caused the app to switch to Star/Galaxy/Nebula and display the Messier catalog (110 objects).
+
+**Root cause:** The first implementation called `st.rerun()` inside each button click handler. `st.rerun()` is a *programmatic* rerun — Streamlit has less context about which widget triggered it and cannot reliably restore state for *keyless* widgets (widgets with no `key=` parameter). The `target_mode` radio at line 1988 had no `key=`, so it reset to its default (index 0 = "Star/Galaxy/Nebula") on every programmatic rerun.
+
+**Full audit found 4 keyless widgets at risk:**
+| Widget | Location | Risk |
+|--------|----------|------|
+| `st.radio("Select Object Type:")` | `app.py:1988` | **Critical** — section switcher |
+| `st.radio("Sort Graph By:")` | `plot_visibility_timeline()` | High — sort resets on any rerun |
+| `st.selectbox("Select a Planet")` | Planet section | Medium — trajectory selection resets |
+| `st.selectbox("Select Target")` | Cosmic section | Medium — trajectory selection resets |
+
+**Fixes applied (commits `807b398`, `840552e` on `main`):**
+1. `key="target_mode"` added to section radio
+2. `chart_key` parameter added to `plot_visibility_timeline()` → `key=f"sort_{chart_key}"` on sort radio; all 7 call sites updated with unique keys: `dso`, `planet`, `comet`, `comet_cat`, `asteroid`, `cosmic`, `manual_traj`
+3. `key="planet_traj_sel"` and `key="cosmic_traj_sel"` on trajectory selectboxes
+
+**Belt-and-suspenders fix in compass grid (commit `f0cb5ad`):**
+- Replaced `st.rerun()` with `on_click` callbacks (`_toggle_az`, `_clear_az`). `on_click` runs state mutation during the *natural* widget-interaction rerun — no programmatic rerun ever fired.
+
+**Rules established:**
+- **Every `st.radio`, `st.selectbox`, `st.slider`, `st.checkbox` MUST have `key=`** — keyless widgets are fragile and will silently lose state during any programmatic rerun anywhere in the app.
+- **Sidebar toggle buttons must use `on_click` callbacks, not `st.rerun()`** — `on_click` fires during the natural rerun cycle; `st.rerun()` is only safe in admin panel contexts where users aren't actively navigating sections.
+- **`plot_visibility_timeline()` callers must pass `chart_key=`** — without it the sort radio is keyless and resets on any rerun.
+- **`st.button` labels do not support HTML or `\n` line breaks** — `\n` renders as a space. Use `help=` for supplementary info (shows as tooltip on hover).
+
+---
+
 ## 2026-03-01 — populate_jpl_cache: 18 false failures fixed (asteroids + 3 comets)
 
 **Commit:** `9910705` → `7d54ba4` (pushed to `main`)

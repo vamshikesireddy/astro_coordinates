@@ -1894,6 +1894,10 @@ else:
 # Compass grid: 3×3 button layout matching sky directions.
 # Rebuild az_dirs from session state after buttons are rendered.
 # The pre-render set above was used only for the status caption.
+_az_ranges = {
+    "N": "337–22°", "NE": "22–67°",  "E": "67–112°",  "SE": "112–157°",
+    "S": "157–202°","SW": "202–247°","W": "247–292°",  "NW": "292–337°",
+}
 _az_grid = [
     ["NW", "N",  "NE"],
     ["W",  None, "E" ],
@@ -1911,14 +1915,9 @@ for _az_row in _az_grid:
                 _selected = st.session_state.get(f"az_{_lbl}", False)
                 _btn_lbl = f"✓ {_lbl}" if _selected else _lbl
                 st.button(_btn_lbl, key=f"az_btn_{_lbl}", use_container_width=True,
-                          on_click=_toggle_az, args=(_lbl,))
+                          help=_az_ranges[_lbl], on_click=_toggle_az, args=(_lbl,))
                 if _selected:
                     az_dirs.add(_lbl)
-# Degree range legend
-st.sidebar.caption(
-    "N:337.5–22.5° · NE:22.5–67.5° · E:67.5–112.5° · SE:112.5–157.5°\n"
-    "S:157.5–202.5° · SW:202.5–247.5° · W:247.5–292.5° · NW:292.5–337.5°"
-)
 dec_range = st.sidebar.slider("Declination Window (°)", -90, 90, (-90, 90), help="Filter targets by declination. Set a range to exclude objects too far north or south for your site.")
 min_dec, max_dec = dec_range
 min_moon_sep = st.sidebar.slider("Min Moon Separation Filter (°)", 0, 180, 0, help="Optional: Hide targets closer than this to the Moon. Default 0 shows all.")
