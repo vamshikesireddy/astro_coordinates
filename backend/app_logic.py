@@ -6,6 +6,7 @@ Imported by app.py via: from backend.app_logic import <name>
 
 import pytz
 import pandas as pd
+from pathlib import Path
 from datetime import datetime, timedelta
 from astropy.coordinates import AltAz
 from astropy.time import Time
@@ -368,3 +369,19 @@ def _get_dso_image_url(ra: float, dec: float, obj_type: str, curated_url: str | 
         f"hips=CDS/P/DSS2/color&ra={ra}&dec={dec}"
         f"&width=400&height=400&fov={fov}&format=jpg"
     )
+
+
+# ── DSO local image path lookup ───────────────────────────────────────────────
+
+def _get_dso_local_image(name: str, base_dir: Path | None = None) -> Path | None:
+    """Return the local Path for a DSO image file, or None if not downloaded yet.
+
+    Files are stored as assets/dso_images/{sanitized_name}.jpg.
+    Spaces and slashes in the name are replaced with underscores.
+    base_dir is injectable for testing; defaults to assets/dso_images.
+    """
+    if base_dir is None:
+        base_dir = Path("assets/dso_images")
+    filename = name.replace(" ", "_").replace("/", "_") + ".jpg"
+    path = base_dir / filename
+    return path if path.exists() else None

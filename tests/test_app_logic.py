@@ -315,3 +315,23 @@ def test_get_dso_image_url_uses_narrow_fov_for_star():
 def test_get_dso_image_url_ignores_empty_string_curated():
     url = _get_dso_image_url(10.685, 41.269, "Galaxy", "")
     assert "aladin.cds.unistra.fr" in url
+
+
+# ── _get_dso_local_image ──────────────────────────────────────────────────────
+
+from pathlib import Path
+from backend.app_logic import _get_dso_local_image
+
+def test_get_dso_local_image_found(tmp_path):
+    (tmp_path / "M31.jpg").write_bytes(b"fake-image-data")
+    result = _get_dso_local_image("M31", base_dir=tmp_path)
+    assert result == tmp_path / "M31.jpg"
+
+def test_get_dso_local_image_missing(tmp_path):
+    result = _get_dso_local_image("M31", base_dir=tmp_path)
+    assert result is None
+
+def test_get_dso_local_image_sanitizes_name(tmp_path):
+    (tmp_path / "NGC_7000.jpg").write_bytes(b"fake")
+    result = _get_dso_local_image("NGC 7000", base_dir=tmp_path)
+    assert result == tmp_path / "NGC_7000.jpg"
