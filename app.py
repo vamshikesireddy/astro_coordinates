@@ -59,7 +59,7 @@ CONFIG = {
 }
 
 from backend.app_logic import (
-    _AZ_OCTANTS, _AZ_LABELS, _AZ_CAPTIONS, az_in_selected,
+    _AZ_OCTANTS, _AZ_LABELS, az_in_selected,
     get_moon_status, _check_row_observability,
     _sort_df_like_chart, build_night_plan,
     _sanitize_csv_df, _add_peak_alt_session,
