@@ -92,3 +92,66 @@ def test_build_epochs_date_format():
     assert len(epochs['stop']) == 10   # YYYY-MM-DD
     assert epochs['stop'] > today
     assert epochs['step'] == '1d'
+
+
+def test_extract_positions_includes_vmag_comet():
+    """Comet rows: vmag comes from T-mag column."""
+    from scripts.update_ephemeris_cache import _extract_positions
+
+    class MockRow:
+        def __init__(self, jd, ra, dec, tmag):
+            self._data = {"datetime_jd": jd, "RA": ra, "DEC": dec, "T-mag": tmag}
+        def __getitem__(self, key):
+            return self._data[key]
+
+    rows = [MockRow(2461481.5, 123.456, -12.345, 8.5)]
+    positions = _extract_positions(rows, section='comets')
+    assert positions[0]["vmag"] == 8.5
+
+
+def test_extract_positions_includes_vmag_asteroid():
+    """Asteroid rows: vmag comes from V column."""
+    from scripts.update_ephemeris_cache import _extract_positions
+
+    class MockRow:
+        def __init__(self, jd, ra, dec, v):
+            self._data = {"datetime_jd": jd, "RA": ra, "DEC": dec, "V": v}
+        def __getitem__(self, key):
+            return self._data[key]
+
+    rows = [MockRow(2461481.5, 99.0, 5.0, 12.3)]
+    positions = _extract_positions(rows, section='asteroids')
+    assert positions[0]["vmag"] == 12.3
+
+
+def test_extract_positions_vmag_none_on_missing_column():
+    """Missing T-mag/V column → vmag is None, no crash."""
+    from scripts.update_ephemeris_cache import _extract_positions
+
+    class MockRow:
+        def __init__(self, jd, ra, dec):
+            self._data = {"datetime_jd": jd, "RA": ra, "DEC": dec}
+        def __getitem__(self, key):
+            if key not in self._data:
+                raise KeyError(key)
+            return self._data[key]
+
+    rows = [MockRow(2461481.5, 1.0, 2.0)]
+    positions = _extract_positions(rows, section='comets')
+    assert positions[0]["vmag"] is None
+
+
+def test_extract_positions_old_signature_still_works():
+    """Existing call with no section arg returns vmag=None (backwards compat)."""
+    from scripts.update_ephemeris_cache import _extract_positions
+
+    class MockRow:
+        def __init__(self, jd, ra, dec):
+            self._data = {"datetime_jd": jd, "RA": ra, "DEC": dec}
+        def __getitem__(self, key):
+            return self._data[key]
+
+    rows = [MockRow(2461481.5, 1.0, 2.0)]
+    positions = _extract_positions(rows)   # no section
+    assert "vmag" in positions[0]
+    assert positions[0]["vmag"] is None

@@ -51,15 +51,29 @@ def _build_epochs(days=HORIZON_DAYS):
     return start, {'start': start, 'stop': stop, 'step': '1d'}
 
 
-def _extract_positions(result):
-    """Convert Horizons result rows → list of {date, ra, dec} dicts."""
+def _extract_positions(result, section=None):
+    """Convert Horizons result rows → list of {date, ra, dec, vmag} dicts.
+
+    section: 'comets' → reads T-mag; 'asteroids' → reads V; None → vmag=None.
+    vmag is None when the column is absent or the value is masked/non-numeric.
+    """
+    vmag_col = 'T-mag' if section == 'comets' else ('V' if section == 'asteroids' else None)
     positions = []
     for row in result:
         t = Time(float(row['datetime_jd']), format='jd', scale='utc')
+        vmag = None
+        if vmag_col:
+            try:
+                v = float(row[vmag_col])
+                if 0 < v < 40:   # sanity range — reject masked/garbage values
+                    vmag = round(v, 2)
+            except Exception:
+                pass
         positions.append({
             'date': t.datetime.strftime('%Y-%m-%d'),
             'ra':   round(float(row['RA']),  6),
             'dec':  round(float(row['DEC']), 6),
+            'vmag': vmag,
         })
     return positions
 
@@ -117,7 +131,7 @@ def _fetch_object(name, section, overrides):
             horizons_id, '500', epochs,
             closest_apparition=(section == 'comets'),
         )
-        return _extract_positions(result), None
+        return _extract_positions(result, section=section), None
     except Exception as exc:
         return [], str(exc)[:200]
 
