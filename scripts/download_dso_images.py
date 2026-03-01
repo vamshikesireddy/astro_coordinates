@@ -15,7 +15,6 @@ For each object:
 Already-downloaded images are skipped (idempotent — safe to re-run).
 """
 
-import sys
 from pathlib import Path
 from io import BytesIO
 
@@ -23,9 +22,17 @@ import yaml
 import requests
 from PIL import Image
 
-# Add project root to sys.path so backend imports work
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from backend.app_logic import _get_dso_image_url  # noqa: E402
+
+def _get_dso_image_url(ra: float, dec: float, obj_type: str, curated_url) -> str:
+    """Build an Aladin hips2fits URL, or return the curated URL if provided."""
+    if curated_url:
+        return curated_url
+    fov = 0.3 if obj_type == "Star" else 1.0
+    return (
+        f"https://alasky.cds.unistra.fr/hips-image-services/hips2fits?"
+        f"hips=CDS/P/DSS2/color&ra={ra}&dec={dec}"
+        f"&width=400&height=400&fov={fov}&format=jpg"
+    )
 
 ASSETS_DIR  = Path(__file__).parent.parent / "assets" / "dso_images"
 YAML_PATH   = Path(__file__).parent.parent / "dso_targets.yaml"

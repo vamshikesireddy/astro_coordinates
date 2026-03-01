@@ -4,6 +4,22 @@ Bug fixes, discoveries, and notable changes. See CLAUDE.md for architecture and 
 
 ---
 
+## 2026-03-01 — DSO image click response: st.fragment (near-instant)
+
+**Branch:** `feature/dso-image-preview`
+
+**Problem:** Clicking a row in the DSO table triggered a full Streamlit app rerun — re-computing the 167-object observability loop, Gantt chart, Night Plan Builder, and all other sections — before showing the image card.
+
+**Fix:** Wrapped the DSO table + image card in `@st.fragment` (`_dso_table_and_image`). Row clicks now re-run only the fragment, skipping the full observability pipeline. Response is near-instant.
+
+**Also fixed:** `scripts/download_dso_images.py` previously imported `_get_dso_image_url` from `backend.app_logic`, pulling in `pandas`, `astropy`, `pytz` — none installed in the GH Actions workflow (`pip install requests Pillow pyyaml`). Fixed by inlining the 5-line URL helper directly in the script. Workflow will now succeed without heavy deps.
+
+**Rule:** Download/utility scripts run in CI must be self-contained — never import from `backend/` (which pulls in the full app dependency chain). Inline any shared logic they need.
+
+**Hint:** Added `st.caption("Click any row to see a photo and details...")` above the table so users know clicking does something.
+
+---
+
 ## 2026-03-01 — DSO images pre-downloaded locally (instant loading)
 
 **Branch:** `feature/dso-image-preview` (follow-up to image card feature, 5 additional commits)
