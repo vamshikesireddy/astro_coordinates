@@ -2100,6 +2100,12 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 _df_sorted_d = _sort_df_like_chart(df_obs_d, _chart_sort_d) if _chart_sort_d else df_obs_d
                 _dso_table_and_image(_df_sorted_d, display_cols_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
+                st.download_button(
+                    "📊 Download All DSO Data (CSV)",
+                    data=_sanitize_csv_df(df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
+                    file_name=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
+                    mime="text/csv",
+                )
                 st.markdown("---")
                 with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
@@ -2123,13 +2129,6 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
                 if not df_filt_d.empty:
                     filt_show = [c for c in ["Name", "Type", "Magnitude", "filter_reason", "Rise", "Transit", "Set", "Status"] if c in df_filt_d.columns]
                     st.dataframe(df_filt_d[filt_show], hide_index=True, width="stretch")
-
-            st.download_button(
-                "Download DSO Data (CSV)",
-                data=_sanitize_csv_df(df_dsos.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
-                file_name=f"dso_{category.lower().replace(' ', '_')}_visibility.csv",
-                mime="text/csv"
-            )
 
     # --- Select Target for Trajectory ---
     st.markdown("---")
@@ -2293,6 +2292,12 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
                     show_p = [c for c in display_cols_p if c in _df_sorted_p.columns]
                     st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
+                    st.download_button(
+                        "📊 Download All Planet Data (CSV)",
+                        data=_sanitize_csv_df(df_planets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
+                        file_name="planets_visibility.csv",
+                        mime="text/csv",
+                    )
                     st.markdown("---")
                     with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
