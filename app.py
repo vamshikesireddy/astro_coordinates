@@ -942,6 +942,10 @@ def _render_night_plan_builder(
                         _plan_cfg[_peak_alt_display_col] = st.column_config.NumberColumn(
                             'Peak Alt (°)', format="%.0f°"
                         )
+                    if vmag_col and vmag_col in _plan_display.columns:
+                        _plan_cfg[vmag_col] = st.column_config.NumberColumn(
+                            vmag_col, format="%.2f"
+                        )
                     if 'Moon Sep (°)' in _plan_display.columns:
                         _plan_cfg['Moon Sep (°)'] = st.column_config.TextColumn("Moon Sep (°)")
                     if 'Moon Status' in _plan_display.columns:
@@ -2799,6 +2803,12 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                         " = Unistellar Citizen Science priority target",
                         unsafe_allow_html=True
                     )
+                    st.download_button(
+                        "📊 Download All Comet Data (CSV)",
+                        data=_sanitize_csv_df(df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
+                        file_name="comets_visibility.csv",
+                        mime="text/csv",
+                    )
                     st.markdown("---")
                     with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                         _render_night_plan_builder(
@@ -2822,13 +2832,6 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                     if not df_filt_c.empty:
                         filt_show = [c for c in ["Name", "filter_reason", "Rise", "Transit", "Set", "Status"] if c in df_filt_c.columns]
                         st.dataframe(df_filt_c[filt_show], hide_index=True, width="stretch")
-
-                st.download_button(
-                    "Download Comet Data (CSV)",
-                    data=_sanitize_csv_df(df_comets.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
-                    file_name="comets_visibility.csv",
-                    mime="text/csv"
-                )
 
         # Select comet for trajectory
         st.markdown("---")
@@ -3548,6 +3551,12 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                     " = Unistellar Planetary Defense priority target",
                     unsafe_allow_html=True
                 )
+                st.download_button(
+                    "📊 Download All Asteroid Data (CSV)",
+                    data=_sanitize_csv_df(df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
+                    file_name="asteroids_visibility.csv",
+                    mime="text/csv",
+                )
                 st.markdown("---")
                 with st.expander("2\\. 📅 Night Plan Builder", expanded=True):
                     _render_night_plan_builder(
@@ -3571,13 +3580,6 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
                 if not df_filt_a.empty:
                     filt_show = [c for c in ["Name", "filter_reason", "Rise", "Transit", "Set", "RA", "_dec_deg", "Status"] if c in df_filt_a.columns]
                     st.dataframe(df_filt_a[filt_show], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
-
-            st.download_button(
-                "Download Asteroid Data (CSV)",
-                data=_sanitize_csv_df(df_asteroids.drop(columns=["is_observable", "filter_reason", "_rise_datetime", "_set_datetime"], errors="ignore")).to_csv(index=False).encode("utf-8"),
-                file_name="asteroids_visibility.csv",
-                mime="text/csv"
-            )
 
     # Select asteroid for trajectory
     st.markdown("---")
