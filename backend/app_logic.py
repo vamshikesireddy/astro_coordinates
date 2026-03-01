@@ -354,7 +354,7 @@ def _apply_night_plan_filters(
 
 # ── DSO image URL resolution ──────────────────────────────────────────────────
 
-def _get_dso_image_url(ra: float, dec: float, obj_type: str, curated_url) -> str:
+def _get_dso_image_url(ra: float, dec: float, obj_type: str, curated_url: str | None) -> str:
     """Return an image URL for the given DSO.
 
     Prefers a curated_url from dso_targets.yaml. Falls back to an Aladin
