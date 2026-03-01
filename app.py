@@ -1473,7 +1473,7 @@ def load_dso_config():
 @st.cache_data(ttl=3600, show_spinner="Calculating DSO visibility...")
 def get_dso_summary(lat, lon, start_time, dso_tuple):
     """Batch-calculate rise/set/moon info for all DSOs using pre-stored coordinates.
-    dso_tuple: tuple of (name, ra_deg, dec_deg, obj_type, magnitude, common_name)
+    dso_tuple: tuple of (name, ra_deg, dec_deg, obj_type, magnitude, common_name, image_url)
     """
     location = EarthLocation(lat=lat * u.deg, lon=lon * u.deg)
     t_moon = Time(start_time)
@@ -1487,7 +1487,7 @@ def get_dso_summary(lat, lon, start_time, dso_tuple):
         moon_illum_inner = 0
     data = []
     for entry in dso_tuple:
-        d_name, ra_deg, dec_deg, obj_type, magnitude, common_name = entry
+        d_name, ra_deg, dec_deg, obj_type, magnitude, common_name, image_url = entry
         try:
             sky_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
             details = calculate_planning_info(sky_coord, location, start_time)
@@ -1501,6 +1501,7 @@ def get_dso_summary(lat, lon, start_time, dso_tuple):
                 "Dec": sky_coord.dec.to_string(sep=('° ', "' ", '"'), precision=0, alwayssign=True, pad=True),
                 "_dec_deg": dec_deg,
                 "_ra_deg":  sky_coord.ra.deg,
+                "_image_url": image_url,
                 "Moon Sep (°)": round(moon_sep, 1),
                 "Moon Status": get_moon_status(moon_illum_inner, moon_sep) if moon_loc_inner else "",
             }
@@ -1962,7 +1963,8 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
         dso_tuple = tuple(
             (d["name"], float(d["ra"]), float(d["dec"]),
              d.get("type", ""), float(d.get("magnitude", 0) or 0),
-             d.get("common_name", ""))
+             d.get("common_name", ""),
+             d.get("image_url") or None)
             for d in dso_list
         )
         df_dsos = get_dso_summary(lat, lon, start_time, dso_tuple)
