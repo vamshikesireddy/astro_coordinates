@@ -121,7 +121,7 @@ def get_planet_summary(lat, lon, start_time):
             continue
     return pd.DataFrame(data)
 
-def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_label="Default Order", priority_col=None, brightness_col=None):
+def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_label="Default Order", priority_col=None, brightness_col=None, chart_key=None):
     """Generates a Gantt-style chart showing Rise to Set times.
 
     obs_start / obs_end: naive local datetimes for the observation window overlay.
@@ -185,7 +185,8 @@ def plot_visibility_timeline(df, obs_start=None, obs_end=None, default_sort_labe
         "Sort Graph By:",
         _sort_options,
         horizontal=True,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key=f"sort_{chart_key}" if chart_key else None
     )
 
     # For Earliest Rise / Earliest Set: Always Up objects move to the bottom
@@ -2113,7 +2114,7 @@ def render_dso_section(location, start_time, duration, min_alt, max_alt, az_dirs
 
             with tab_obs_d:
                 st.subheader(f"Observable — {category}")
-                _chart_sort_d = plot_visibility_timeline(df_obs_d, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
+                _chart_sort_d = plot_visibility_timeline(df_obs_d, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order", chart_key="dso")
                 _df_sorted_d = _sort_df_like_chart(df_obs_d, _chart_sort_d) if _chart_sort_d else df_obs_d
                 _dso_table_and_image(_df_sorted_d, display_cols_d)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
@@ -2304,7 +2305,7 @@ def render_planet_section(location, start_time, duration, min_alt, max_alt, az_d
 
             with tab_obs_p:
                 if not df_obs_p.empty:
-                    _chart_sort_p = plot_visibility_timeline(df_obs_p, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order")
+                    _chart_sort_p = plot_visibility_timeline(df_obs_p, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Default Order", chart_key="planet")
                     _df_sorted_p = _sort_df_like_chart(df_obs_p, _chart_sort_p) if _chart_sort_p else df_obs_p
                     show_p = [c for c in display_cols_p if c in _df_sorted_p.columns]
                     st.dataframe(_df_sorted_p[show_p], hide_index=True, width="stretch", column_config=_MOON_SEP_COL_CONFIG)
@@ -2815,7 +2816,7 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
 
                 with tab_obs_c:
                     st.subheader("Observable Comets")
-                    _chart_sort_c = plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority", brightness_col="Magnitude")
+                    _chart_sort_c = plot_visibility_timeline(df_obs_c, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority", brightness_col="Magnitude", chart_key="comet")
                     _df_sorted_c = _sort_df_like_chart(df_obs_c, _chart_sort_c, priority_col="Priority", brightness_col="Magnitude") if _chart_sort_c else df_obs_c
                     display_comet_table(_df_sorted_c)
                     st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
@@ -3039,7 +3040,8 @@ def render_comet_section(location, start_time, duration, min_alt, max_alt, az_di
                                     _df_obs_cat,
                                     obs_start=obs_start_naive if show_obs_window else None,
                                     obs_end=obs_end_naive if show_obs_window else None,
-                                    default_sort_label="Priority Order"
+                                    default_sort_label="Priority Order",
+                                    chart_key="comet_cat"
                                 )
                                 _df_sorted_cat = _sort_df_like_chart(_df_obs_cat, _chart_sort_cat) if _chart_sort_cat else _df_obs_cat
                                 st.dataframe(
@@ -3563,7 +3565,7 @@ def render_asteroid_section(location, start_time, duration, min_alt, max_alt, az
 
             with tab_obs_a:
                 st.subheader("Observable Asteroids")
-                _chart_sort_a = plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority", brightness_col="Magnitude")
+                _chart_sort_a = plot_visibility_timeline(df_obs_a, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Priority Order", priority_col="Priority", brightness_col="Magnitude", chart_key="asteroid")
                 _df_sorted_a = _sort_df_like_chart(df_obs_a, _chart_sort_a, priority_col="Priority", brightness_col="Magnitude") if _chart_sort_a else df_obs_a
                 display_asteroid_table(_df_sorted_a)
                 st.caption("🌙 **Moon Sep**: angular separation range across the observation window (min°–max°). Computed at start, mid, and end of window.")
@@ -4176,7 +4178,7 @@ def render_cosmic_section(location, start_time, duration, min_alt, max_alt, az_d
             with tab_obs:
                 st.subheader("Available Targets")
 
-                _chart_sort_cosmic = plot_visibility_timeline(df_obs, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Order By Discovery Date")
+                _chart_sort_cosmic = plot_visibility_timeline(df_obs, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, default_sort_label="Order By Discovery Date", chart_key="cosmic")
 
                 st.info("ℹ️ **Note:** The **🔭 Open** button opens the Unistellar app on your phone or tablet. On a laptop it opens a new browser tab (harmless). For other equipment use the RA/Dec coordinates. Excel exports have the target name as a clickable hyperlink.")
 
@@ -4412,7 +4414,7 @@ if st.button("🚀 Calculate Visibility", type="primary", disabled=not resolved 
         planning_info["Name"] = name
         df_plan = pd.DataFrame([planning_info])
         st.subheader("Visibility Window")
-        plot_visibility_timeline(df_plan, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None)
+        plot_visibility_timeline(df_plan, obs_start=obs_start_naive if show_obs_window else None, obs_end=obs_end_naive if show_obs_window else None, chart_key="manual_traj")
     except Exception:
         pass
 
