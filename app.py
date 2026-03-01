@@ -1885,8 +1885,6 @@ _az_grid = [
     ["W",  None, "E" ],
     ["SW", "S",  "SE"],
 ]
-# Rebuild az_dirs from session state after buttons are rendered.
-# The pre-render set above (line 1870) was used only for the status caption.
 az_dirs = set()
 for _az_row in _az_grid:
     _row_cols = st.sidebar.columns(3)
